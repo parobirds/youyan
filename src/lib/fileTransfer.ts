@@ -119,6 +119,19 @@ export async function sendEncryptedFile(
 
   reader.onload = async (event) => {
     const arrayBuffer = event.target?.result as ArrayBuffer;
+    
+    // 发送端也保存文件到本地 IndexedDB
+    const localFile: LocalFile = {
+      id: fileId,
+      roomId,
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      data: arrayBuffer,
+      receivedAt: Date.now(),
+    };
+    await saveLocalFile(localFile);
+    
     await sendNextChunk(arrayBuffer);
   };
 

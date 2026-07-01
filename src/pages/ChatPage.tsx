@@ -258,13 +258,33 @@ export default function ChatPage() {
       // 压缩图片
       const compressedDataUrl = await compressImage(file);
       
-      sendMessage(compressedDataUrl, 'image', {
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type,
-        ...buildReplyMeta(),
+      // 把 dataUrl 转成 Blob
+      const res = await fetch(compressedDataUrl);
+      const blob = await res.blob();
+      const compressedFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), {
+        type: 'image/jpeg',
       });
-      setReplyTo(null);
+      
+      // 使用分块传输发送图片
+      const { sendFile } = useChatStore.getState();
+      
+      // 先创建一个临时消息占位
+      const tempId = 'img_' + Date.now();
+      const progressHandler = (progress: any) => {
+        if (progress.status === 'completed') {
+          // 发送完成后，用文件 ID 发送图片消息
+          const fileId = progress.fileId;
+          sendMessage(fileId, 'image', {
+            fileName: compressedFile.name,
+            fileSize: compressedFile.size,
+            fileType: 'image/jpeg',
+            ...buildReplyMeta(),
+          });
+          setReplyTo(null);
+        }
+      };
+      
+      sendFile(compressedFile, progressHandler);
     } catch (err) {
       console.error('图片处理失败:', err);
       alert('图片处理失败，请重试');
@@ -277,7 +297,17 @@ export default function ChatPage() {
     if (!file || !sharedKey) return;
     
     const { sendFile } = useChatStore.getState();
-    sendFile(file);
+    sendFile(file, (progress) => {
+      if (progress.status === 'completed') {
+        sendMessage(progress.fileId, 'file', {
+          fileName: file.name,
+          fileSize: file.size,
+          fileType: file.type,
+          ...buildReplyMeta(),
+        });
+        setReplyTo(null);
+      }
+    });
     
     e.target.value = '';
   };

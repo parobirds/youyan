@@ -264,17 +264,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       onProgress?.(progress);
 
       if (progress.status === 'completed') {
-        const fileMsg: Partial<Message> = {
-          fileName: file.name,
-          fileSize: file.size,
-          fileType: file.type,
-        };
-        get().sendMessage(progress.fileId, 'file', fileMsg);
         setTimeout(() => {
           const p = new Map(get().fileTransferProgress);
           p.delete(progress.fileId);
           set({ fileTransferProgress: p });
-        }, 1000);
+        }, 3000);
       }
     });
   },
@@ -374,7 +368,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   handleFileSignal: (type: string, payload: any, senderId: string, senderName: string) => {
-    const { sharedKey, room, messages, encryptedMessages } = get();
+    const { sharedKey, room } = get();
     if (!sharedKey || !room) return;
 
     let receiver = (get() as any)._fileReceiver;
@@ -384,35 +378,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const newProgress = new Map(get().fileTransferProgress);
           newProgress.set(progress.fileId, progress);
           set({ fileTransferProgress: newProgress });
+          
+          if (progress.status === 'completed' || progress.status === 'error' || progress.status === 'cancelled') {
+            setTimeout(() => {
+              const p = new Map(get().fileTransferProgress);
+              p.delete(progress.fileId);
+              set({ fileTransferProgress: p });
+            }, 3000);
+          }
         },
-        async (localFile) => {
-          const fileMessage: Message = {
-            id: generateId(),
-            type: 'file',
-            content: localFile.id,
-            timestamp: Date.now(),
-            senderId,
-            senderName,
-            fileName: localFile.name,
-            fileSize: localFile.size,
-            fileType: localFile.type,
-          };
-          
-          const encrypted = await encryptMessage(fileMessage, sharedKey);
-          const decrypted: Message = { id: encrypted.msgId!, ...fileMessage };
-          
-          const newEncrypted = [...get().encryptedMessages, encrypted];
-          const newMessages = [...get().messages, decrypted];
-          
-          set({ messages: newMessages, encryptedMessages: newEncrypted });
-          saveMessages(room.id, newEncrypted);
-          
-          setTimeout(() => {
-            const p = new Map(get().fileTransferProgress);
-            p.delete(localFile.id);
-            set({ fileTransferProgress: p });
-          }, 1000);
-        }
+        () => {}
       );
       (get() as any)._fileReceiver = receiver;
     }

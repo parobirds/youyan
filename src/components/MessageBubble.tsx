@@ -54,8 +54,35 @@ export default function MessageBubble({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [burnCountdown, setBurnCountdown] = useState<number | null>(null);
+  const [imageUrl, setImageUrl] = useState<string>('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const longPressTimer = useRef<number | null>(null);
+
+  // 加载图片（如果 content 是 fileId，则从 IndexedDB 加载）
+  useEffect(() => {
+    if (message.type !== 'image') return;
+    if (message.content.startsWith('data:') || message.content.startsWith('blob:')) {
+      setImageUrl(message.content);
+      return;
+    }
+
+    let objectUrl: string | null = null;
+    const loadImage = async () => {
+      const getFileUrl = useChatStore.getState().getFileUrl;
+      const fileUrl = await getFileUrl(message.content);
+      if (fileUrl) {
+        setImageUrl(fileUrl);
+        objectUrl = fileUrl;
+      }
+    };
+    loadImage();
+
+    return () => {
+      if (objectUrl && objectUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [message.content, message.type]);
 
   useEffect(() => {
     return () => {
@@ -139,8 +166,8 @@ export default function MessageBubble({
   };
 
   const handleImageClick = () => {
-    if (message.type === 'image' && onImageClick) {
-      onImageClick(message.content);
+    if (message.type === 'image' && onImageClick && imageUrl) {
+      onImageClick(imageUrl);
     }
   };
 
@@ -316,13 +343,18 @@ export default function MessageBubble({
                   <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{message.content}</p>
                 )}
 
-                {message.type === 'image' && (
+                {message.type === 'image' && imageUrl && (
                   <img
-                    src={message.content}
+                    src={imageUrl}
                     alt="图片"
                     className="max-w-[200px] max-h-[300px] rounded-lg object-cover cursor-pointer"
                     onClick={handleImageClick}
                   />
+                )}
+                {message.type === 'image' && !imageUrl && (
+                  <div className="w-[200px] h-[200px] rounded-lg bg-gray-200 flex items-center justify-center">
+                    <span className="text-gray-500 text-sm">加载中...</span>
+                  </div>
                 )}
 
                 {message.type === 'file' && (
