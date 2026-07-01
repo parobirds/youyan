@@ -47,7 +47,6 @@
     "vite-tsconfig-paths": "^5.1.4"
   },
   "engines": {
-    "node": ">=18",
-    "packageManager": "pnpm@10.28.1"
+    "node": ">=18"
   }
 }

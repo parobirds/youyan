@@ -9,3 +9,10 @@ ngrok
 ngrok.tgz
 .DS_Store
 *.log
+.pnpm-store
+*.zip
+.trae
+cert.pem
+key.pem
+server.ts
+start-tunnel.js

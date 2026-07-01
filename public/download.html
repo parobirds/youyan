@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>有言 - 代码下载</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 40px;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    h1 { color: #07c160; margin-top: 0; }
+    .btn {
+      display: inline-block;
+      padding: 12px 32px;
+      background: #07c160;
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+      margin: 10px;
+    }
+    .btn:hover { background: #06ad56; }
+    .steps {
+      text-align: left;
+      margin-top: 20px;
+      color: #666;
+      line-height: 1.8;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>有言 - 代码包下载</h1>
+    <p>点击下方按钮下载代码压缩包</p>
+    <button class="btn" onclick="download()">下载 youyan.zip</button>
+    <div class="steps">
+      <p><strong>上传到 GitHub 步骤：</strong></p>
+      <ol>
+        <li>下载 youyan.zip 并解压</li>
+        <li>打开 https://github.com/parobirds/youyan</li>
+        <li>点击 "uploading an existing file"</li>
+        <li>把解压后的所有文件拖拽上传</li>
+        <li>点击 "Commit changes"</li>
+      </ol>
+    </div>
+  </div>
+  <script>
+    function download() {
+      const base64 = window.__ZIP_BASE64__;
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'youyan.zip';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>
