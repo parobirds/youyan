@@ -4,8 +4,9 @@ import { generateKeyPair, deriveSharedKey, publicKeyToBase64, base64ToPublicKey 
 import { encryptMessage, decryptMessage } from '@/crypto/aes';
 import { signalChannel } from '@/signal/channel';
 import { generateId, generateRoomId } from '@/utils';
-import { saveMessages, loadMessages } from '@/storage';
+import { saveMessages, loadMessages, loadLocalFile } from '@/storage';
 import { useScreenShareStore } from './useScreenShareStore';
+import { sendEncryptedFile, FileReceiver, createDownloadUrl, type FileTransferProgress } from '@/lib/fileTransfer';
 
 export type CallType = 'voice' | 'video' | null;
 export type CallStatus = 'idle' | 'calling' | 'ringing' | 'connected' | 'ended';
@@ -28,13 +29,17 @@ interface ChatState {
   remoteStream: MediaStream | null;
   peerConnection: RTCPeerConnection | null;
 
+  fileTransferProgress: Map<string, FileTransferProgress>;
+
   setMyName: (name: string) => void;
   setBurnMode: (mode: BurnMode) => void;
   createRoom: (maxMembers?: number) => Promise<string>;
   joinRoom: (roomId: string) => Promise<void>;
   sendMessage: (content: string, type?: Message['type'], meta?: Partial<Message>) => Promise<void>;
+  sendFile: (file: File, onProgress?: (progress: FileTransferProgress) => void) => Promise<void>;
   recallMessage: (msgId: string) => void;
   deleteMessage: (msgId: string) => void;
+  burnMessage: (msgId: string) => void;
   markAsRead: (msgId: string) => void;
   handleKeyExchange: (peerPublicKey: string, peerId: string, peerName: string) => Promise<void>;
   handleIncomingMessage: (encrypted: EncryptedMessage) => Promise<void>;
@@ -43,6 +48,8 @@ interface ChatState {
   handleBurnTrigger: (msgId: string) => void;
   handleRoomDissolved: () => void;
   handleScreenshot: (senderName: string) => void;
+  handleFileSignal: (type: string, payload: any, senderId: string, senderName: string) => void;
+  getFileUrl: (fileId: string) => Promise<string | null>;
   leaveRoom: () => void;
   dissolveRoom: () => void;
   loadHistory: (roomId: string) => Promise<void>;
@@ -78,6 +85,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   localStream: null,
   remoteStream: null,
   peerConnection: null,
+
+  fileTransferProgress: new Map(),
 
   setMyName: (name: string) => set({ myName: name }),
   setBurnMode: (mode: BurnMode) => set({ burnMode: mode }),
@@ -219,6 +228,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ messages: messages.filter(m => m.id !== msgId) });
   },
 
+  burnMessage: (msgId: string) => {
+    const { messages, myId, room } = get();
+    if (!room) return;
+    const msg = messages.find(m => m.id === msgId);
+    if (!msg || msg.senderId !== myId) return;
+
+    set({
+      messages: messages.map(m => m.id === msgId ? { ...m, recalled: true, content: '消息已焚毁' } : m),
+    });
+    signalChannel.send('message_recall', { msgId, burned: true }, myId);
+  },
+
+  sendFile: async (file: File, onProgress?: (progress: FileTransferProgress) => void) => {
+    const { sharedKey, myId, myName, room } = get();
+    if (!sharedKey || !room) return;
+
+    await sendEncryptedFile(file, sharedKey, room.id, myId, myName, (progress) => {
+      const newProgress = new Map(get().fileTransferProgress);
+      newProgress.set(progress.fileId, progress);
+      set({ fileTransferProgress: newProgress });
+      onProgress?.(progress);
+
+      if (progress.status === 'completed') {
+        const fileMsg: Partial<Message> = {
+          fileName: file.name,
+          fileSize: file.size,
+          fileType: file.type,
+        };
+        get().sendMessage(progress.fileId, 'file', fileMsg);
+        setTimeout(() => {
+          const p = new Map(get().fileTransferProgress);
+          p.delete(progress.fileId);
+          set({ fileTransferProgress: p });
+        }, 1000);
+      }
+    });
+  },
+
   markAsRead: (msgId: string) => {
     const { messages, myId } = get();
     set({
@@ -259,10 +306,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  handleRecall: (msgId: string) => {
+  handleRecall: (msgId: string, burned?: boolean) => {
     const { messages } = get();
     set({
-      messages: messages.map(m => m.id === msgId ? { ...m, recalled: true, content: '消息已撤回' } : m),
+      messages: messages.map(m => m.id === msgId ? { ...m, recalled: true, content: burned ? '消息已焚毁' : '消息已撤回' } : m),
     });
   },
 
@@ -307,6 +354,66 @@ export const useChatStore = create<ChatState>((set, get) => ({
       senderName: '系统',
     };
     set({ messages: [...messages, sysMsg] });
+  },
+
+  handleFileSignal: (type: string, payload: any, senderId: string, senderName: string) => {
+    const { sharedKey, room, messages, encryptedMessages } = get();
+    if (!sharedKey || !room) return;
+
+    let receiver = (get() as any)._fileReceiver;
+    if (!receiver) {
+      receiver = new FileReceiver(sharedKey, room.id, 
+        (progress) => {
+          const newProgress = new Map(get().fileTransferProgress);
+          newProgress.set(progress.fileId, progress);
+          set({ fileTransferProgress: newProgress });
+        },
+        async (localFile) => {
+          const fileMessage: Message = {
+            id: generateId(),
+            type: 'file',
+            content: localFile.id,
+            timestamp: Date.now(),
+            senderId,
+            senderName,
+            fileName: localFile.name,
+            fileSize: localFile.size,
+            fileType: localFile.type,
+          };
+          
+          const encrypted = await encryptMessage(fileMessage, sharedKey);
+          const decrypted: Message = { id: encrypted.msgId!, ...fileMessage };
+          
+          const newEncrypted = [...get().encryptedMessages, encrypted];
+          const newMessages = [...get().messages, decrypted];
+          
+          set({ messages: newMessages, encryptedMessages: newEncrypted });
+          saveMessages(room.id, newEncrypted);
+          
+          setTimeout(() => {
+            const p = new Map(get().fileTransferProgress);
+            p.delete(localFile.id);
+            set({ fileTransferProgress: p });
+          }, 1000);
+        }
+      );
+      (get() as any)._fileReceiver = receiver;
+    }
+
+    receiver.handleSignal(type, payload);
+  },
+
+  getFileUrl: async (fileId: string): Promise<string | null> => {
+    try {
+      const file = await loadLocalFile(fileId);
+      if (file) {
+        return createDownloadUrl(file);
+      }
+      return null;
+    } catch (e) {
+      console.error('Failed to get file url:', e);
+      return null;
+    }
   },
 
   dissolveRoom: () => {
@@ -489,7 +596,7 @@ function _setupSignalHandlers(get: any, set: any, keyPair: KeyPair, myId: string
   });
 
   signalChannel.on('message_recall', (message: any) => {
-    if (message.senderId !== get().myId) get().handleRecall(message.payload.msgId);
+    if (message.senderId !== get().myId) get().handleRecall(message.payload.msgId, message.payload.burned);
   });
 
   signalChannel.on('message_read', (message: any) => {
@@ -515,6 +622,30 @@ function _setupSignalHandlers(get: any, set: any, keyPair: KeyPair, myId: string
         message.senderId,
         message.senderName
       );
+    }
+  });
+
+  signalChannel.on('file_start', (message: any) => {
+    if (message.senderId !== get().myId) {
+      get().handleFileSignal('file_start', message.payload, message.senderId, message.senderName || '对方');
+    }
+  });
+
+  signalChannel.on('file_chunk', (message: any) => {
+    if (message.senderId !== get().myId) {
+      get().handleFileSignal('file_chunk', message.payload, message.senderId, message.senderName || '对方');
+    }
+  });
+
+  signalChannel.on('file_end', (message: any) => {
+    if (message.senderId !== get().myId) {
+      get().handleFileSignal('file_end', message.payload, message.senderId, message.senderName || '对方');
+    }
+  });
+
+  signalChannel.on('file_cancel', (message: any) => {
+    if (message.senderId !== get().myId) {
+      get().handleFileSignal('file_cancel', message.payload, message.senderId, message.senderName || '对方');
     }
   });
 }

@@ -267,21 +267,9 @@ export default function ChatPage() {
     const file = e.target.files?.[0];
     if (!file || !sharedKey) return;
     
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      sendMessage(result, 'file', {
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type,
-        ...buildReplyMeta(),
-      });
-      setReplyTo(null);
-    };
-    reader.onerror = () => {
-      alert('文件读取失败');
-    };
-    reader.readAsDataURL(file);
+    const { sendFile } = useChatStore.getState();
+    sendFile(file);
+    
     e.target.value = '';
   };
 
@@ -411,6 +399,11 @@ export default function ChatPage() {
     return !message.recalled && message.type !== 'system';
   };
 
+  const canBurn = (message: Message | null) => {
+    if (!message) return false;
+    return message.senderId === myId && !message.recalled && message.type !== 'system';
+  };
+
   const handleRecall = () => {
     if (actionMsg) recallMessage(actionMsg.id);
     setActionMsg(null);
@@ -423,6 +416,14 @@ export default function ChatPage() {
 
   const handleDeleteAction = () => {
     if (actionMsg) deleteMessage(actionMsg.id);
+    setActionMsg(null);
+  };
+
+  const handleBurnAction = () => {
+    if (actionMsg) {
+      const { burnMessage } = useChatStore.getState();
+      burnMessage(actionMsg.id);
+    }
     setActionMsg(null);
   };
 
@@ -904,6 +905,15 @@ export default function ChatPage() {
                 >
                   <Reply className="w-5 h-5 text-gray-500" />
                   回复
+                </button>
+              )}
+              {canBurn(actionMsg) && (
+                <button
+                  onClick={handleBurnAction}
+                  className="w-full px-4 py-3 text-left text-sm text-orange-500 hover:bg-orange-50 rounded-lg flex items-center gap-3"
+                >
+                  <Flame className="w-5 h-5" />
+                  焚毁
                 </button>
               )}
               <button

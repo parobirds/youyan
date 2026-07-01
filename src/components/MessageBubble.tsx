@@ -16,6 +16,7 @@ import {
   CornerUpLeft,
   Shield,
 } from 'lucide-react';
+import { useChatStore } from '@/store/useChatStore';
 
 interface MessageBubbleProps {
   message: Message;
@@ -109,13 +110,32 @@ export default function MessageBubble({
     }
   };
 
-  const handleDownload = () => {
-    const link = document.createElement('a');
-    link.href = message.content;
-    link.download = message.fileName || 'file';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleDownload = async () => {
+    if (message.type !== 'file') return;
+    
+    const content = message.content;
+    const getFileUrl = useChatStore.getState().getFileUrl;
+    
+    if (content.startsWith('data:') || content.startsWith('blob:')) {
+      const link = document.createElement('a');
+      link.href = content;
+      link.download = message.fileName || 'file';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      const url = await getFileUrl(content);
+      if (url) {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = message.fileName || 'file';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        alert('文件未找到，可能已被清理');
+      }
+    }
   };
 
   const handleImageClick = () => {
