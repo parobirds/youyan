@@ -74,8 +74,8 @@ export default function CreateRoomPage() {
         </h1>
         <div className="absolute right-4 top-1/2 -translate-y-1/2">
           <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded-full">
-            <Shield className="w-3.5 h-3.5 text-[#07C160]" />
-            <span className="text-xs text-[#07C160] font-medium">端对端加密</span>
+            <Shield className="w-3.5 h-3.5 text-[#2C5E4E]" />
+            <span className="text-xs text-[#2C5E4E] font-medium">端对端加密</span>
           </div>
         </div>
       </div>
@@ -95,8 +95,8 @@ export default function CreateRoomPage() {
             >
               {copied ? (
                 <>
-                  <Check className="w-4 h-4 text-[#07C160]" />
-                  <span className="text-[#07C160]">已复制</span>
+                  <Check className="w-4 h-4 text-[#2C5E4E]" />
+                  <span className="text-[#2C5E4E]">已复制</span>
                 </>
               ) : (
                 <>
@@ -121,7 +121,7 @@ export default function CreateRoomPage() {
                   />
                 ) : (
                   <div className="w-[180px] h-[180px] bg-gray-100 rounded-lg flex items-center justify-center">
-                    <div className="w-8 h-8 border-2 border-gray-300 border-t-[#07C160] rounded-full animate-spin" />
+                    <div className="w-8 h-8 border-2 border-gray-300 border-t-[#2C5E4E] rounded-full animate-spin" />
                   </div>
                 )}
               </div>
@@ -143,7 +143,7 @@ export default function CreateRoomPage() {
                   onClick={() => setMaxMembers(num)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                     maxMembers === num
-                      ? 'bg-[#07C160] text-white shadow-md'
+                      ? 'bg-[#2C5E4E] text-white shadow-md'
                       : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
                   }`}
                 >
@@ -156,8 +156,8 @@ export default function CreateRoomPage() {
           <div className="bg-white rounded-2xl p-6 shadow-sm mb-6">
             <div className="flex items-center justify-center gap-3">
               <div className="relative">
-                <div className="w-3 h-3 bg-[#07C160] rounded-full animate-pulse" />
-                <div className="absolute inset-0 w-3 h-3 bg-[#07C160] rounded-full animate-ping opacity-30" />
+                <div className="w-3 h-3 bg-[#2C5E4E] rounded-full animate-pulse" />
+                <div className="absolute inset-0 w-3 h-3 bg-[#2C5E4E] rounded-full animate-ping opacity-30" />
               </div>
               <span className="text-gray-600">等待对方加入...</span>
             </div>
@@ -169,7 +169,7 @@ export default function CreateRoomPage() {
           <button
             onClick={handleEnterChat}
             disabled={!room}
-            className="w-full bg-white text-[#07C160] py-4 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-gray-50 active:scale-[0.98] transition-all shadow-md border border-green-100 disabled:opacity-50"
+            className="w-full bg-white text-[#2C5E4E] py-4 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-gray-50 active:scale-[0.98] transition-all shadow-md border border-green-100 disabled:opacity-50"
           >
             <MessageCircle className="w-5 h-5" />
             进入聊天室

@@ -7,17 +7,9 @@ export interface AesKey {
   raw: Uint8Array;
 }
 
-export type MessageType = 'text' | 'image' | 'file' | 'voice';
+export type MessageType = 'text' | 'image' | 'file' | 'voice' | 'system' | 'call_record';
 
-export interface FileMetadata {
-  name: string;
-  size: number;
-  type: string;
-}
-
-export interface VoiceMetadata {
-  duration: number;
-}
+export type BurnMode = 0 | 10 | 30 | 60;
 
 export interface Message {
   id: string;
@@ -30,6 +22,18 @@ export interface Message {
   fileSize?: number;
   fileType?: string;
   duration?: number;
+  recalled?: boolean;
+  read?: boolean;
+  burnAfterRead?: BurnMode;
+  replyTo?: {
+    id: string;
+    content: string;
+    senderName: string;
+    type: MessageType;
+  };
+  callType?: 'voice' | 'video';
+  callDuration?: number;
+  callStatus?: 'incoming' | 'outgoing' | 'missed' | 'answered';
 }
 
 export interface EncryptedMessage {
@@ -39,6 +43,7 @@ export interface EncryptedMessage {
   senderId: string;
   senderName: string;
   type: MessageType;
+  msgId?: string;
 }
 
 export interface Member {
@@ -53,9 +58,21 @@ export interface Room {
   maxMembers: number;
   createdAt: number;
   members: Member[];
+  dissolved?: boolean;
 }
 
-export type SignalType = 'join' | 'key_exchange' | 'message' | 'leave' | 'ready' | 'call';
+export type SignalType =
+  | 'join'
+  | 'key_exchange'
+  | 'message'
+  | 'leave'
+  | 'ready'
+  | 'call'
+  | 'message_recall'
+  | 'message_read'
+  | 'burn_trigger'
+  | 'room_dissolved'
+  | 'screenshot';
 
 export interface SignalMessage {
   type: SignalType;

@@ -34,7 +34,7 @@ export default function SettingsPage() {
         <div className="bg-white rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-50">
             <h2 className="text-sm font-medium text-gray-700 flex items-center gap-2">
-              <Shield className="w-4 h-4 text-[#07C160]" />
+              <Shield className="w-4 h-4 text-[#2C5E4E]" />
               加密信息
             </h2>
           </div>
@@ -42,7 +42,7 @@ export default function SettingsPage() {
             <div className="px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center">
-                  <Key className="w-4 h-4 text-[#07C160]" />
+                  <Key className="w-4 h-4 text-[#2C5E4E]" />
                 </div>
                 <div>
                   <p className="text-sm text-gray-800">加密算法</p>
@@ -76,7 +76,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               {sharedKey && (
-                <span className="px-2 py-1 bg-green-50 text-[#07C160] text-xs rounded-full">
+                <span className="px-2 py-1 bg-green-50 text-[#2C5E4E] text-xs rounded-full">
                   已验证
                 </span>
               )}

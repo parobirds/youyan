@@ -145,7 +145,7 @@ export default function HomePage() {
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-8">
         {recentRooms.length === 0 && (
           <div className="mb-8 text-center">
-            <div className="w-16 h-16 bg-[#07C160] rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <div className="w-16 h-16 bg-[#2C5E4E] rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
               <MessageCircle className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-gray-800 mb-2">有言</h1>
@@ -157,7 +157,7 @@ export default function HomePage() {
           <button
             onClick={handleCreateRoom}
             disabled={isCreating}
-            className="w-full bg-[#07C160] text-white py-4 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-[#06AD56] active:scale-[0.98] transition-all shadow-md disabled:opacity-50"
+            className="w-full bg-[#2C5E4E] text-white py-4 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-[#1F4337] active:scale-[0.98] transition-all shadow-md disabled:opacity-50"
           >
             <Plus className="w-5 h-5" />
             {isCreating ? '创建中...' : '创建加密房间'}
@@ -179,14 +179,14 @@ export default function HomePage() {
                   value={roomCode}
                   onChange={(e) => setRoomCode(e.target.value)}
                   placeholder="输入房间号 (如 ROOM-XXXX-XXXX)"
-                  className="flex-1 px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:border-[#07C160] focus:ring-1 focus:ring-[#07C160] text-gray-700 uppercase text-sm"
+                  className="flex-1 px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:border-[#2C5E4E] focus:ring-1 focus:ring-[#2C5E4E] text-gray-700 uppercase text-sm"
                   onKeyDown={(e) => e.key === 'Enter' && handleJoinRoom()}
                   autoFocus
                 />
                 <button
                   onClick={handleJoinRoom}
                   disabled={!roomCode.trim()}
-                  className="px-6 py-3 bg-[#07C160] text-white rounded-lg font-medium hover:bg-[#06AD56] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="px-6 py-3 bg-[#2C5E4E] text-white rounded-lg font-medium hover:bg-[#1F4337] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   加入
                 </button>

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, EncryptedMessage, Room, Member, KeyPair, AesKey, ConnectionStatus } from '@/types';
+import type { Message, EncryptedMessage, Room, KeyPair, AesKey, ConnectionStatus, BurnMode } from '@/types';
 import { generateKeyPair, deriveSharedKey, publicKeyToBase64, base64ToPublicKey } from '@/crypto/ecdh';
 import { encryptMessage, decryptMessage } from '@/crypto/aes';
 import { signalChannel } from '@/signal/channel';
@@ -19,6 +19,7 @@ interface ChatState {
   encryptedMessages: EncryptedMessage[];
   connectionStatus: ConnectionStatus;
   peerPublicKey: string | null;
+  burnMode: BurnMode;
 
   callType: CallType;
   callStatus: CallStatus;
@@ -27,12 +28,22 @@ interface ChatState {
   peerConnection: RTCPeerConnection | null;
 
   setMyName: (name: string) => void;
+  setBurnMode: (mode: BurnMode) => void;
   createRoom: (maxMembers?: number) => Promise<string>;
   joinRoom: (roomId: string) => Promise<void>;
-  sendMessage: (content: string, type?: 'text' | 'image' | 'file' | 'voice', meta?: Partial<Message>) => Promise<void>;
+  sendMessage: (content: string, type?: Message['type'], meta?: Partial<Message>) => Promise<void>;
+  recallMessage: (msgId: string) => void;
+  deleteMessage: (msgId: string) => void;
+  markAsRead: (msgId: string) => void;
   handleKeyExchange: (peerPublicKey: string, peerId: string, peerName: string) => Promise<void>;
   handleIncomingMessage: (encrypted: EncryptedMessage) => Promise<void>;
+  handleRecall: (msgId: string) => void;
+  handleRead: (msgId: string) => void;
+  handleBurnTrigger: (msgId: string) => void;
+  handleRoomDissolved: () => void;
+  handleScreenshot: (senderName: string) => void;
   leaveRoom: () => void;
+  dissolveRoom: () => void;
   loadHistory: (roomId: string) => Promise<void>;
 
   startCall: (type: 'voice' | 'video') => Promise<void>;
@@ -59,6 +70,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   encryptedMessages: [],
   connectionStatus: 'idle',
   peerPublicKey: null,
+  burnMode: 0,
 
   callType: null,
   callStatus: 'idle',
@@ -67,6 +79,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   peerConnection: null,
 
   setMyName: (name: string) => set({ myName: name }),
+  setBurnMode: (mode: BurnMode) => set({ burnMode: mode }),
 
   createRoom: async (maxMembers = 2) => {
     const roomId = generateRoomId();
@@ -79,50 +92,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       maxMembers,
       createdAt: Date.now(),
       members: [
-        {
-          id: myId,
-          name: '我',
-          publicKey: publicKeyToBase64(keyPair.publicKey),
-        },
+        { id: myId, name: '我', publicKey: publicKeyToBase64(keyPair.publicKey) },
       ],
     };
 
     set({
-      room,
-      myId,
-      keyPair,
+      room, myId, keyPair,
       connectionStatus: 'waiting',
-      messages: [],
-      encryptedMessages: [],
-      sharedKey: null,
-      peerPublicKey: null,
+      messages: [], encryptedMessages: [],
+      sharedKey: null, peerPublicKey: null,
+      burnMode: 0,
     });
 
     signalChannel.connect(roomId);
-
-    signalChannel.on('join', async (message) => {
-      if (message.senderId !== get().myId) {
-        const { publicKey, name } = message.payload;
-        await get().handleKeyExchange(publicKey, message.senderId, name || '对方');
-        signalChannel.send(
-          'key_exchange',
-          { publicKey: publicKeyToBase64(keyPair.publicKey), name: get().myName },
-          get().myId
-        );
-      }
-    });
-
-    signalChannel.on('message', async (message) => {
-      if (message.senderId !== get().myId) {
-        await get().handleIncomingMessage(message.payload);
-      }
-    });
-
-    signalChannel.on('call', (message) => {
-      if (message.senderId !== get().myId) {
-        get().handleCallSignal(message.payload);
-      }
-    });
+    _setupSignalHandlers(get, set, keyPair, myId);
 
     return roomId;
   },
@@ -137,63 +120,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
       maxMembers: 2,
       createdAt: Date.now(),
       members: [
-        {
-          id: myId,
-          name: '我',
-          publicKey: publicKeyToBase64(keyPair.publicKey),
-        },
+        { id: myId, name: '我', publicKey: publicKeyToBase64(keyPair.publicKey) },
       ],
     };
 
     set({
-      room,
-      myId,
-      keyPair,
+      room, myId, keyPair,
       connectionStatus: 'connecting',
-      messages: [],
-      encryptedMessages: [],
-      sharedKey: null,
-      peerPublicKey: null,
+      messages: [], encryptedMessages: [],
+      sharedKey: null, peerPublicKey: null,
+      burnMode: 0,
     });
 
     signalChannel.connect(roomId);
-
-    signalChannel.on('join', async (message) => {
-      if (message.senderId !== get().myId) {
-        const { publicKey, name } = message.payload;
-        await get().handleKeyExchange(publicKey, message.senderId, name || '对方');
-        signalChannel.send(
-          'key_exchange',
-          { publicKey: publicKeyToBase64(keyPair.publicKey), name: get().myName },
-          get().myId
-        );
-      }
-    });
-
-    signalChannel.on('key_exchange', async (message) => {
-      if (message.senderId !== get().myId) {
-        const { publicKey, name } = message.payload;
-        await get().handleKeyExchange(publicKey, message.senderId, name || '对方');
-      }
-    });
-
-    signalChannel.on('message', async (message) => {
-      if (message.senderId !== get().myId) {
-        await get().handleIncomingMessage(message.payload);
-      }
-    });
-
-    signalChannel.on('call', (message) => {
-      if (message.senderId !== get().myId) {
-        get().handleCallSignal(message.payload);
-      }
-    });
+    _setupSignalHandlers(get, set, keyPair, myId);
 
     signalChannel.send(
       'join',
       { publicKey: publicKeyToBase64(keyPair.publicKey), name: get().myName },
-      myId,
-      get().myName
+      myId, get().myName
     );
 
     await get().loadHistory(roomId);
@@ -211,43 +156,76 @@ export const useChatStore = create<ChatState>((set, get) => ({
       { id: peerId, name: peerName, publicKey: peerPublicKey },
     ];
 
+    const wasConnected = get().connectionStatus === 'connected';
+
     set({
-      sharedKey,
-      peerPublicKey,
+      sharedKey, peerPublicKey,
       room: { ...room, members: updatedMembers },
       connectionStatus: 'connected',
     });
+
+    if (!wasConnected) {
+      get().sendMessage('加密通道已建立', 'system');
+    }
   },
 
-  sendMessage: async (content: string, type: 'text' | 'image' | 'file' | 'voice' = 'text', meta: Partial<Message> = {}) => {
-    const { sharedKey, myId, myName, room, encryptedMessages } = get();
+  sendMessage: async (content: string, type: Message['type'] = 'text', meta: Partial<Message> = {}) => {
+    const { sharedKey, myId, myName, room, encryptedMessages, burnMode } = get();
     if (!sharedKey || !room) return;
 
     const message = {
-      type,
-      content,
+      type, content,
       timestamp: Date.now(),
-      senderId: myId,
-      senderName: myName,
+      senderId: myId, senderName: myName,
+      burnAfterRead: type === 'text' || type === 'image' ? burnMode : undefined,
       ...meta,
     };
 
     const encrypted = await encryptMessage(message, sharedKey);
-    const decrypted = {
-      id: generateId(),
-      ...message,
-    };
+    const decrypted: Message = { id: encrypted.msgId!, ...message };
 
     const newEncrypted = [...encryptedMessages, encrypted];
     const newMessages = [...get().messages, decrypted];
 
-    set({
-      messages: newMessages,
-      encryptedMessages: newEncrypted,
-    });
-
+    set({ messages: newMessages, encryptedMessages: newEncrypted });
     saveMessages(room.id, newEncrypted);
     signalChannel.send('message', encrypted, myId, myName);
+
+    if (burnMode > 0 && (type === 'text' || type === 'image')) {
+      signalChannel.send('burn_trigger', { msgId: encrypted.msgId }, myId);
+    }
+  },
+
+  recallMessage: (msgId: string) => {
+    const { messages, myId, room } = get();
+    if (!room) return;
+
+    const msg = messages.find(m => m.id === msgId);
+    if (!msg || msg.senderId !== myId) return;
+
+    const now = Date.now();
+    if (now - msg.timestamp > 120000) return;
+
+    set({
+      messages: messages.map(m => m.id === msgId ? { ...m, recalled: true } : m),
+    });
+
+    signalChannel.send('message_recall', { msgId }, myId);
+  },
+
+  deleteMessage: (msgId: string) => {
+    const { messages } = get();
+    set({ messages: messages.filter(m => m.id !== msgId) });
+  },
+
+  markAsRead: (msgId: string) => {
+    const { messages, myId } = get();
+    set({
+      messages: messages.map(m =>
+        m.id === msgId && m.senderId !== myId ? { ...m, read: true } : m
+      ),
+    });
+    signalChannel.send('message_read', { msgId }, myId);
   },
 
   handleIncomingMessage: async (encrypted: EncryptedMessage) => {
@@ -257,59 +235,108 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const decrypted = await decryptMessage(encrypted, sharedKey);
 
+      if (decrypted.type === 'system' && decrypted.content === '加密通道已建立') {
+        const exists = messages.some(m =>
+          m.type === 'system' && m.content === '加密通道已建立'
+        );
+        if (exists) return;
+      }
+
       const newEncrypted = [...encryptedMessages, encrypted];
       const newMessages = [...messages, decrypted];
 
-      set({
-        messages: newMessages,
-        encryptedMessages: newEncrypted,
-      });
-
+      set({ messages: newMessages, encryptedMessages: newEncrypted });
       saveMessages(room.id, newEncrypted);
+
+      if (decrypted.burnAfterRead && decrypted.burnAfterRead > 0) {
+        setTimeout(() => {
+          get().deleteMessage(decrypted.id);
+        }, decrypted.burnAfterRead * 1000);
+      }
     } catch (e) {
       console.error('Failed to decrypt message:', e);
     }
   },
 
+  handleRecall: (msgId: string) => {
+    const { messages } = get();
+    set({
+      messages: messages.map(m => m.id === msgId ? { ...m, recalled: true, content: '消息已撤回' } : m),
+    });
+  },
+
+  handleRead: (msgId: string) => {
+    const { messages } = get();
+    set({
+      messages: messages.map(m => m.id === msgId ? { ...m, read: true } : m),
+    });
+  },
+
+  handleBurnTrigger: (msgId: string) => {
+    const { messages } = get();
+    const msg = messages.find(m => m.id === msgId);
+    if (msg && msg.burnAfterRead && msg.burnAfterRead > 0) {
+      setTimeout(() => {
+        get().deleteMessage(msgId);
+      }, msg.burnAfterRead * 1000);
+    }
+  },
+
+  handleRoomDissolved: () => {
+    const { room } = get();
+    if (room) {
+      set({
+        room: { ...room, dissolved: true },
+        connectionStatus: 'disconnected',
+      });
+      get()._cleanupCall();
+    }
+  },
+
+  handleScreenshot: (senderName: string) => {
+    const { messages, myId, room } = get();
+    if (!room) return;
+
+    const sysMsg: Message = {
+      id: generateId(),
+      type: 'system',
+      content: `${senderName} 截屏了聊天界面`,
+      timestamp: Date.now(),
+      senderId: 'system',
+      senderName: '系统',
+    };
+    set({ messages: [...messages, sysMsg] });
+  },
+
+  dissolveRoom: () => {
+    const { myId, room } = get();
+    if (!room) return;
+    signalChannel.send('room_dissolved', {}, myId);
+    get().leaveRoom();
+  },
+
   leaveRoom: () => {
     const { peerConnection, localStream } = get();
-    if (peerConnection) {
-      peerConnection.close();
-    }
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
-    }
+    if (peerConnection) peerConnection.close();
+    if (localStream) localStream.getTracks().forEach(track => track.stop());
     signalChannel.disconnect();
     set({
-      room: null,
-      myId: '',
-      keyPair: null,
-      sharedKey: null,
-      messages: [],
-      encryptedMessages: [],
-      connectionStatus: 'idle',
-      peerPublicKey: null,
-      callType: null,
-      callStatus: 'idle',
-      localStream: null,
-      remoteStream: null,
-      peerConnection: null,
+      room: null, myId: '', keyPair: null, sharedKey: null,
+      messages: [], encryptedMessages: [],
+      connectionStatus: 'idle', peerPublicKey: null,
+      burnMode: 0,
+      callType: null, callStatus: 'idle',
+      localStream: null, remoteStream: null, peerConnection: null,
     });
   },
 
   loadHistory: async (roomId: string) => {
     const { sharedKey } = get();
     const encrypted = loadMessages(roomId);
-
     if (sharedKey && encrypted.length > 0) {
       try {
-        const decrypted = await Promise.all(
-          encrypted.map((msg) => decryptMessage(msg, sharedKey))
-        );
-        set({
-          encryptedMessages: encrypted,
-          messages: decrypted,
-        });
+        const decrypted = await Promise.all(encrypted.map(msg => decryptMessage(msg, sharedKey)));
+        set({ encryptedMessages: encrypted, messages: decrypted });
       } catch (e) {
         console.error('Failed to decrypt history:', e);
       }
@@ -321,53 +348,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
   startCall: async (type: 'voice' | 'video') => {
     const { myId, room } = get();
     if (!room) return;
-
     try {
-      const constraints = type === 'video'
-        ? { audio: true, video: true }
-        : { audio: true, video: false };
-
+      const constraints = type === 'video' ? { audio: true, video: true } : { audio: true, video: false };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       set({ localStream: stream, callType: type, callStatus: 'calling' });
 
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
       set({ peerConnection: pc });
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-      stream.getTracks().forEach(track => {
-        pc.addTrack(track, stream);
-      });
-
-      pc.ontrack = (event) => {
-        set({ remoteStream: event.streams[0] });
-      };
-
+      pc.ontrack = (event) => set({ remoteStream: event.streams[0] });
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          signalChannel.send('call', {
-            callType: type,
-            action: 'ice-candidate',
-            candidate: event.candidate,
-          }, myId);
+          signalChannel.send('call', { callType: type, action: 'ice-candidate', candidate: event.candidate }, myId);
         }
       };
-
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'connected') {
-          set({ callStatus: 'connected' });
-        } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-          get().endCall();
-        }
+        if (pc.connectionState === 'connected') set({ callStatus: 'connected' });
+        else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') get().endCall();
       };
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-
-      signalChannel.send('call', {
-        callType: type,
-        action: 'offer',
-        offer,
-      }, myId);
-
+      signalChannel.send('call', { callType: type, action: 'offer', offer }, myId);
     } catch (e) {
       console.error('Failed to start call:', e);
       set({ callStatus: 'idle', callType: null });
@@ -377,28 +380,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   acceptCall: async () => {
     const { myId, callType, peerConnection, localStream } = get();
     if (!callType || !peerConnection) return;
-
     try {
-      const constraints = callType === 'video'
-        ? { audio: true, video: true }
-        : { audio: true, video: false };
-
+      const constraints = callType === 'video' ? { audio: true, video: true } : { audio: true, video: false };
       const stream = localStream || await navigator.mediaDevices.getUserMedia(constraints);
       set({ localStream: stream, callStatus: 'connected' });
-
-      stream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, stream);
-      });
+      stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
 
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
-
-      signalChannel.send('call', {
-        callType,
-        action: 'answer',
-        answer,
-      }, myId);
-
+      signalChannel.send('call', { callType, action: 'answer', answer }, myId);
     } catch (e) {
       console.error('Failed to accept call:', e);
       get().endCall();
@@ -407,92 +397,59 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   rejectCall: () => {
     const { myId, callType } = get();
-    signalChannel.send('call', {
-      callType,
-      action: 'reject',
-    }, myId);
+    signalChannel.send('call', { callType, action: 'reject' }, myId);
     get()._cleanupCall();
   },
 
   endCall: () => {
     const { myId, callType } = get();
     if (callType) {
-      signalChannel.send('call', {
-        callType,
-        action: 'end',
-      }, myId);
+      signalChannel.send('call', { callType, action: 'end' }, myId);
     }
     get()._cleanupCall();
   },
 
   _cleanupCall: () => {
     const { peerConnection, localStream } = get();
-    if (peerConnection) {
-      peerConnection.close();
-    }
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
-    }
+    if (peerConnection) peerConnection.close();
+    if (localStream) localStream.getTracks().forEach(track => track.stop());
     set({
-      callType: null,
-      callStatus: 'idle',
-      localStream: null,
-      remoteStream: null,
-      peerConnection: null,
+      callType: null, callStatus: 'idle',
+      localStream: null, remoteStream: null, peerConnection: null,
     });
   },
 
   handleCallSignal: async (data: any) => {
-    const { callType: currentCallType, callStatus: currentCallStatus, peerConnection: existingPc, myId } = get();
+    const { callStatus: currentStatus, peerConnection: existingPc, myId } = get();
 
     switch (data.action) {
       case 'offer':
-        if (currentCallStatus === 'idle') {
+        if (currentStatus === 'idle') {
           const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
           set({ peerConnection: pc, callType: data.callType, callStatus: 'ringing' });
-
-          pc.ontrack = (event) => {
-            set({ remoteStream: event.streams[0] });
-          };
-
+          pc.ontrack = (event) => set({ remoteStream: event.streams[0] });
           pc.onicecandidate = (event) => {
             if (event.candidate) {
-              signalChannel.send('call', {
-                callType: data.callType,
-                action: 'ice-candidate',
-                candidate: event.candidate,
-              }, myId);
+              signalChannel.send('call', { callType: data.callType, action: 'ice-candidate', candidate: event.candidate }, myId);
             }
           };
-
           pc.onconnectionstatechange = () => {
-            if (pc.connectionState === 'connected') {
-              set({ callStatus: 'connected' });
-            } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-              get()._cleanupCall();
-            }
+            if (pc.connectionState === 'connected') set({ callStatus: 'connected' });
+            else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') get()._cleanupCall();
           };
-
           await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
         }
         break;
-
       case 'answer':
-        if (existingPc && currentCallStatus === 'calling') {
+        if (existingPc && currentStatus === 'calling') {
           await existingPc.setRemoteDescription(new RTCSessionDescription(data.answer));
         }
         break;
-
       case 'ice-candidate':
         if (existingPc && data.candidate) {
-          try {
-            await existingPc.addIceCandidate(new RTCIceCandidate(data.candidate));
-          } catch (e) {
-            console.error('Failed to add ICE candidate:', e);
-          }
+          try { await existingPc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) { console.error('ICE error:', e); }
         }
         break;
-
       case 'reject':
       case 'end':
         get()._cleanupCall();
@@ -500,3 +457,52 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 }));
+
+function _setupSignalHandlers(get: any, set: any, keyPair: KeyPair, myId: string) {
+  signalChannel.on('join', async (message: any) => {
+    if (message.senderId !== get().myId) {
+      const { publicKey, name } = message.payload;
+      await get().handleKeyExchange(publicKey, message.senderId, name || '对方');
+      signalChannel.send('key_exchange',
+        { publicKey: publicKeyToBase64(keyPair.publicKey), name: get().myName },
+        get().myId);
+    }
+  });
+
+  signalChannel.on('key_exchange', async (message: any) => {
+    if (message.senderId !== get().myId) {
+      const { publicKey, name } = message.payload;
+      await get().handleKeyExchange(publicKey, message.senderId, name || '对方');
+    }
+  });
+
+  signalChannel.on('message', async (message: any) => {
+    if (message.senderId !== get().myId) {
+      await get().handleIncomingMessage(message.payload);
+    }
+  });
+
+  signalChannel.on('call', (message: any) => {
+    if (message.senderId !== get().myId) get().handleCallSignal(message.payload);
+  });
+
+  signalChannel.on('message_recall', (message: any) => {
+    if (message.senderId !== get().myId) get().handleRecall(message.payload.msgId);
+  });
+
+  signalChannel.on('message_read', (message: any) => {
+    if (message.senderId !== get().myId) get().handleRead(message.payload.msgId);
+  });
+
+  signalChannel.on('burn_trigger', (message: any) => {
+    if (message.senderId !== get().myId) get().handleBurnTrigger(message.payload.msgId);
+  });
+
+  signalChannel.on('room_dissolved', (message: any) => {
+    if (message.senderId !== get().myId) get().handleRoomDissolved();
+  });
+
+  signalChannel.on('screenshot', (message: any) => {
+    if (message.senderId !== get().myId) get().handleScreenshot(message.senderName || '对方');
+  });
+}
