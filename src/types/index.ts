@@ -44,6 +44,7 @@ export interface EncryptedMessage {
   senderName: string;
   type: MessageType;
   msgId?: string;
+  largeData?: boolean;
 }
 
 export interface Member {

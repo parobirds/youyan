@@ -49,13 +49,13 @@ export default function HomePage() {
 
   const handleJoinRoom = () => {
     if (roomCode.trim()) {
-      const normalizedCode = roomCode.trim().toUpperCase();
+      const roomId = roomCode.trim(); // 保留用户输入的原始格式
       // 保存到最近房间列表
       const rooms = loadRooms();
-      const existingIndex = rooms.findIndex(r => r.id === normalizedCode);
+      const existingIndex = rooms.findIndex(r => r.id === roomId);
       if (existingIndex === -1) {
         rooms.push({
-          id: normalizedCode,
+          id: roomId,
           name: '有言聊天室',
           maxMembers: 2,
           createdAt: Date.now(),
@@ -65,7 +65,7 @@ export default function HomePage() {
         rooms[existingIndex].createdAt = Date.now();
       }
       saveRooms(rooms);
-      navigate(`/chat/${encodeURIComponent(normalizedCode)}`);
+      navigate(`/chat/${encodeURIComponent(roomId)}`);
     }
   };
 
@@ -178,8 +178,8 @@ export default function HomePage() {
                   type="text"
                   value={roomCode}
                   onChange={(e) => setRoomCode(e.target.value)}
-                  placeholder="输入房间号 (如 ROOM-XXXX-XXXX)"
-                  className="flex-1 px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:border-[#2C5E4E] focus:ring-1 focus:ring-[#2C5E4E] text-gray-700 uppercase text-sm"
+                  placeholder="输入任意房间名或房间号"
+                  className="flex-1 px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:border-[#2C5E4E] focus:ring-1 focus:ring-[#2C5E4E] text-gray-700 text-sm"
                   onKeyDown={(e) => e.key === 'Enter' && handleJoinRoom()}
                   autoFocus
                 />

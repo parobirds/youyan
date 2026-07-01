@@ -332,7 +332,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   loadHistory: async (roomId: string) => {
     const { sharedKey } = get();
-    const encrypted = loadMessages(roomId);
+    const encrypted = await loadMessages(roomId);
     if (sharedKey && encrypted.length > 0) {
       try {
         const decrypted = await Promise.all(encrypted.map(msg => decryptMessage(msg, sharedKey)));
