@@ -158,6 +158,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     signalChannel.connect(roomId);
 
+    signalChannel.on('join', async (message) => {
+      if (message.senderId !== get().myId) {
+        const { publicKey, name } = message.payload;
+        await get().handleKeyExchange(publicKey, message.senderId, name || '对方');
+        signalChannel.send(
+          'key_exchange',
+          { publicKey: publicKeyToBase64(keyPair.publicKey), name: get().myName },
+          get().myId
+        );
+      }
+    });
+
     signalChannel.on('key_exchange', async (message) => {
       if (message.senderId !== get().myId) {
         const { publicKey, name } = message.payload;
