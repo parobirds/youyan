@@ -86,7 +86,10 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (roomId && room?.id !== roomId && connectionStatus === 'idle') {
-      joinRoom(roomId);
+      joinRoom(roomId, (maxMembers) => {
+        alert(`房间人数已满（最多 ${maxMembers} 人）`);
+        navigate('/');
+      });
       // 更新最近房间列表
       const rooms = loadRooms();
       const existingIndex = rooms.findIndex((r) => r.id === roomId);
@@ -97,7 +100,7 @@ export default function ChatPage() {
     }
     const timer = setTimeout(() => setIsJoining(false), 500);
     return () => clearTimeout(timer);
-  }, [roomId, room?.id, connectionStatus, joinRoom]);
+  }, [roomId, room?.id, connectionStatus, joinRoom, navigate]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

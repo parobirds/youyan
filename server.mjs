@@ -33,9 +33,9 @@ const mimeTypes = {
 
 const rooms = new Map();
 
-function getRoom(roomId) {
+function getRoom(roomId, maxMembers = 2) {
   if (!rooms.has(roomId)) {
-    rooms.set(roomId, { id: roomId, clients: new Map() });
+    rooms.set(roomId, { id: roomId, maxMembers, clients: new Map() });
   }
   return rooms.get(roomId);
 }
@@ -116,7 +116,22 @@ wss.on('connection', (ws) => {
       if (message.type === 'join' || message.type === 'connect') {
         currentRoomId = message.roomId;
         clientId = message.senderId;
-        const room = getRoom(currentRoomId);
+        const maxMembers = message.payload?.maxMembers || 2;
+        const room = getRoom(currentRoomId, maxMembers);
+        
+        // 检查房间人数是否已满
+        if (room.clients.size >= room.maxMembers && !room.clients.has(clientId)) {
+          ws.send(JSON.stringify({
+            type: 'room_full',
+            roomId: currentRoomId,
+            maxMembers: room.maxMembers,
+            message: '房间人数已满',
+            timestamp: Date.now()
+          }));
+          ws.close();
+          return;
+        }
+        
         room.clients.set(clientId, ws);
         
         broadcastToRoom(currentRoomId, message, clientId);
@@ -125,6 +140,7 @@ wss.on('connection', (ws) => {
           type: 'joined', 
           roomId: currentRoomId, 
           memberCount: room.clients.size,
+          maxMembers: room.maxMembers,
           timestamp: Date.now() 
         }));
       } else if (currentRoomId && clientId) {

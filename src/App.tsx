@@ -1,9 +1,14 @@
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, useParams } from "react-router-dom";
 import HomePage from "@/pages/HomePage";
 import CreateRoomPage from "@/pages/CreateRoomPage";
 import ChatPage from "@/pages/ChatPage";
 import SettingsPage from "@/pages/SettingsPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
+
+function ChatPageWithKey() {
+  const { roomId } = useParams();
+  return <ChatPage key={roomId} />;
+}
 
 export default function App() {
   return (
@@ -12,7 +17,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/create" element={<CreateRoomPage />} />
-          <Route path="/chat/:roomId" element={<ChatPage />} />
+          <Route path="/chat/:roomId" element={<ChatPageWithKey />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </Router>

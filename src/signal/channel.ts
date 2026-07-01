@@ -10,6 +10,7 @@ class SignalChannel {
   private handlers: Map<SignalType, MessageHandler[]> = new Map();
   private onConnectedCallback: ConnectionCallback | null = null;
   private onJoinedCallback: ConnectionCallback | null = null;
+  private onRoomFullCallback: ((data: any) => void) | null = null;
   private status: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 10;
@@ -76,6 +77,14 @@ class SignalChannel {
             console.log('[SignalChannel] Joined room successfully');
             if (this.onJoinedCallback) {
               this.onJoinedCallback();
+            }
+            return;
+          }
+          
+          if (message.type === 'room_full') {
+            console.log('[SignalChannel] Room is full');
+            if (this.onRoomFullCallback) {
+              this.onRoomFullCallback(message);
             }
             return;
           }
@@ -184,6 +193,7 @@ class SignalChannel {
     this.processedMsgIds.clear();
     this.onConnectedCallback = null;
     this.onJoinedCallback = null;
+    this.onRoomFullCallback = null;
   }
 
   send(type: SignalType, payload: any, senderId: string, senderName?: string): void {
@@ -205,6 +215,11 @@ class SignalChannel {
   // 设置加入房间成功回调
   onJoined(callback: ConnectionCallback): void {
     this.onJoinedCallback = callback;
+  }
+
+  // 设置房间已满回调
+  onRoomFull(callback: (data: any) => void): void {
+    this.onRoomFullCallback = callback;
   }
 
   on(type: SignalType, handler: MessageHandler): void {

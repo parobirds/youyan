@@ -34,7 +34,7 @@ interface ChatState {
   setMyName: (name: string) => void;
   setBurnMode: (mode: BurnMode) => void;
   createRoom: (maxMembers?: number) => Promise<string>;
-  joinRoom: (roomId: string) => Promise<void>;
+  joinRoom: (roomId: string, onRoomFull?: (maxMembers: number) => void) => Promise<void>;
   sendMessage: (content: string, type?: Message['type'], meta?: Partial<Message>) => Promise<void>;
   sendFile: (file: File, onProgress?: (progress: FileTransferProgress) => void) => Promise<void>;
   recallMessage: (msgId: string) => void;
@@ -117,10 +117,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     signalChannel.connect(roomId);
     _setupSignalHandlers(get, set, keyPair, myId);
 
+    signalChannel.send(
+      'join',
+      { publicKey: publicKeyToBase64(keyPair.publicKey), name: get().myName, maxMembers },
+      myId, get().myName
+    );
+
     return roomId;
   },
 
-  joinRoom: async (roomId: string) => {
+  joinRoom: async (roomId: string, onRoomFull?: (maxMembers: number) => void) => {
     const myId = generateId();
     const keyPair = await generateKeyPair();
 
@@ -144,6 +150,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     signalChannel.connect(roomId);
     _setupSignalHandlers(get, set, keyPair, myId);
+    
+    if (onRoomFull) {
+      signalChannel.onRoomFull((data) => {
+        onRoomFull(data.maxMembers || 2);
+      });
+    }
 
     signalChannel.send(
       'join',
@@ -175,6 +187,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     if (!wasConnected) {
+      get().loadHistory(room.id);
       get().sendMessage('加密通道已建立', 'system');
     }
   },
@@ -235,7 +248,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!msg || msg.senderId !== myId) return;
 
     set({
-      messages: messages.map(m => m.id === msgId ? { ...m, recalled: true, content: '消息已焚毁' } : m),
+      messages: messages.filter(m => m.id !== msgId),
     });
     signalChannel.send('message_recall', { msgId, burned: true }, myId);
   },
@@ -308,9 +321,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   handleRecall: (msgId: string, burned?: boolean) => {
     const { messages } = get();
-    set({
-      messages: messages.map(m => m.id === msgId ? { ...m, recalled: true, content: burned ? '消息已焚毁' : '消息已撤回' } : m),
-    });
+    if (burned) {
+      set({ messages: messages.filter(m => m.id !== msgId) });
+    } else {
+      set({
+        messages: messages.map(m => m.id === msgId ? { ...m, recalled: true, content: '消息已撤回' } : m),
+      });
+    }
   },
 
   handleRead: (msgId: string) => {
