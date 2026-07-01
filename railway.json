@@ -1,0 +1,20 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "buildCommand": "npm run build",
+    "watchPatterns": [
+      "src/**",
+      "server.mjs",
+      "package.json",
+      "tsconfig.json",
+      "vite.config.ts",
+      "tailwind.config.js",
+      "postcss.config.js"
+    ]
+  },
+  "deploy": {
+    "startCommand": "npm start",
+    "healthcheckPath": "/",
+    "healthcheckTimeout": 300
+  }
+}
