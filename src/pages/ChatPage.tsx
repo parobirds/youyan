@@ -22,6 +22,7 @@ import MessageBubble from '@/components/MessageBubble';
 import CallModal from '@/components/CallModal';
 import { useChatStore } from '@/store/useChatStore';
 import { formatDate } from '@/utils';
+import { loadRooms, saveRooms } from '@/storage';
 
 export default function ChatPage() {
   const { roomId = '' } = useParams<{ roomId: string }>();
@@ -57,6 +58,13 @@ export default function ChatPage() {
   useEffect(() => {
     if (roomId && room?.id !== roomId && connectionStatus === 'idle') {
       joinRoom(roomId);
+      // 更新最近房间列表
+      const rooms = loadRooms();
+      const existingIndex = rooms.findIndex(r => r.id === roomId);
+      if (existingIndex !== -1) {
+        rooms[existingIndex].createdAt = Date.now();
+        saveRooms(rooms);
+      }
     }
     const timer = setTimeout(() => setIsJoining(false), 500);
     return () => clearTimeout(timer);
@@ -470,7 +478,7 @@ export default function ChatPage() {
             className={`p-2 -ml-2 transition-colors ${
               sharedKey
                 ? 'text-gray-500 hover:text-gray-700'
-                : 'text-gray-300 cursor-not-allowed'
+                : 'text-gray-300'
             }`}
             onClick={() => {
               if (sharedKey) fileInputRef.current?.click();
@@ -490,7 +498,7 @@ export default function ChatPage() {
             className={`p-2 transition-colors ${
               sharedKey
                 ? 'text-gray-500 hover:text-gray-700'
-                : 'text-gray-300 cursor-not-allowed'
+                : 'text-gray-300'
             }`}
             onClick={() => {
               if (sharedKey) imageInputRef.current?.click();
