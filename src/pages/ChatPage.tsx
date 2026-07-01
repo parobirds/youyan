@@ -15,6 +15,8 @@ import {
   Phone,
   Video,
   X,
+  Info,
+  AlertCircle,
 } from 'lucide-react';
 import MessageBubble from '@/components/MessageBubble';
 import CallModal from '@/components/CallModal';
@@ -30,12 +32,14 @@ export default function ChatPage() {
   const [showMenu, setShowMenu] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [showTip, setShowTip] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const {
     messages,
@@ -54,12 +58,23 @@ export default function ChatPage() {
     if (roomId && room?.id !== roomId && connectionStatus === 'idle') {
       joinRoom(roomId);
     }
-    setIsJoining(false);
+    const timer = setTimeout(() => setIsJoining(false), 500);
+    return () => clearTimeout(timer);
   }, [roomId, room?.id, connectionStatus, joinRoom]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleSend = () => {
     if (!inputText.trim() || !sharedKey) return;
@@ -87,6 +102,13 @@ export default function ChatPage() {
       setTimeout(() => setCopied(false), 2000);
     } catch (e) {
       console.error('Copy failed:', e);
+    }
+  };
+
+  const handleDisabledClick = () => {
+    if (!sharedKey) {
+      setShowTip(true);
+      setTimeout(() => setShowTip(false), 2000);
     }
   };
 
@@ -125,7 +147,10 @@ export default function ChatPage() {
   };
 
   const startRecording = async () => {
-    if (!sharedKey) return;
+    if (!sharedKey) {
+      handleDisabledClick();
+      return;
+    }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -146,7 +171,7 @@ export default function ChatPage() {
           const result = event.target?.result as string;
           sendMessage(result, 'voice', {
             duration: recordingTime,
-            fileName: 'voice.webm',
+            fileName: '语音.webm',
             fileSize: audioBlob.size,
             fileType: 'audio/webm',
           });
@@ -167,6 +192,7 @@ export default function ChatPage() {
 
     } catch (e) {
       console.error('Failed to start recording:', e);
+      alert('无法访问麦克风，请检查权限设置');
     }
   };
 
@@ -183,13 +209,21 @@ export default function ChatPage() {
   };
 
   const handleStartVoiceCall = async () => {
-    if (!sharedKey) return;
+    if (!sharedKey) {
+      handleDisabledClick();
+      setShowMenu(false);
+      return;
+    }
     setShowMenu(false);
     startCall('voice');
   };
 
   const handleStartVideoCall = async () => {
-    if (!sharedKey) return;
+    if (!sharedKey) {
+      handleDisabledClick();
+      setShowMenu(false);
+      return;
+    }
     setShowMenu(false);
     startCall('video');
   };
@@ -207,13 +241,25 @@ export default function ChatPage() {
     return currentDate !== prevDate;
   };
 
-  if (isJoining || (!room && connectionStatus === 'connecting')) {
+  const getStatusText = () => {
+    switch (connectionStatus) {
+      case 'waiting':
+        return '等待对方加入...';
+      case 'connecting':
+        return '正在建立安全连接...';
+      case 'connected':
+        return '加密连接已建立';
+      default:
+        return '连接中...';
+    }
+  };
+
+  if (isJoining) {
     return (
       <div className="min-h-screen bg-[#EDEDED] flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-[#07C160] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">正在建立安全连接...</p>
-          <p className="text-xs text-gray-400 mt-2">密钥交换中</p>
+          <p className="text-gray-600">正在进入房间...</p>
         </div>
       </div>
     );
@@ -222,6 +268,15 @@ export default function ChatPage() {
   return (
     <div className="min-h-screen chat-bg flex flex-col">
       <CallModal />
+
+      {showTip && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-gray-800 text-white px-4 py-2 rounded-lg text-sm shadow-lg animate-fade-in">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            <span>请等待对方加入并建立加密连接后再发送消息</span>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white border-b border-gray-100 px-4 py-3 flex items-center sticky top-0 z-10">
         <button
@@ -235,11 +290,20 @@ export default function ChatPage() {
             {room?.name || '有言聊天室'}
           </h1>
           <div className="flex items-center justify-center gap-1 mt-0.5">
-            <Shield className="w-3 h-3 text-[#07C160]" />
-            <span className="text-xs text-[#07C160]">端对端加密</span>
+            {connectionStatus === 'connected' ? (
+              <>
+                <Shield className="w-3 h-3 text-[#07C160]" />
+                <span className="text-xs text-[#07C160]">端对端加密</span>
+              </>
+            ) : (
+              <>
+                <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse" />
+                <span className="text-xs text-orange-500">{getStatusText()}</span>
+              </>
+            )}
           </div>
         </div>
-        <div className="relative">
+        <div className="relative" ref={menuRef}>
           <button
             onClick={() => setShowMenu(!showMenu)}
             className="p-2 -mr-2 text-gray-600 hover:text-gray-800 active:opacity-70"
@@ -250,20 +314,19 @@ export default function ChatPage() {
             <div className="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-100 py-1 min-w-[140px] z-20">
               <button
                 onClick={handleStartVoiceCall}
-                disabled={!sharedKey}
-                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
               >
                 <Phone className="w-4 h-4" />
                 语音通话
               </button>
               <button
                 onClick={handleStartVideoCall}
-                disabled={!sharedKey}
-                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
               >
                 <Video className="w-4 h-4" />
                 视频通话
               </button>
+              <div className="border-t border-gray-100 my-1" />
               <button
                 onClick={() => {
                   setShowMenu(false);
@@ -271,8 +334,8 @@ export default function ChatPage() {
                 }}
                 className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
               >
-                <MoreVertical className="w-4 h-4" />
-                设置
+                <Info className="w-4 h-4" />
+                关于
               </button>
             </div>
           )}
@@ -297,10 +360,12 @@ export default function ChatPage() {
               <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4 relative">
                 <Shield className="w-8 h-8 text-blue-500" />
                 <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-white rounded-full flex items-center justify-center">
-                  <div className="w-3 h-3 bg-[#07C160] rounded-full animate-pulse" />
+                  <div className="w-3 h-3 bg-orange-400 rounded-full animate-pulse" />
                 </div>
               </div>
-              <p className="text-gray-700 text-sm mb-2">等待对方加入房间</p>
+              <p className="text-gray-700 text-sm mb-2">
+                {connectionStatus === 'waiting' ? '等待对方加入房间' : '正在建立安全连接'}
+              </p>
               <div className="flex items-center justify-center gap-2 mb-4">
                 <span className="font-mono text-gray-600 text-sm bg-gray-100 px-3 py-1 rounded-lg">
                   {room?.id || roomId}
@@ -318,14 +383,25 @@ export default function ChatPage() {
               </div>
               <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 max-w-xs mx-auto">
                 <p className="text-xs text-gray-500 leading-relaxed mb-3">
-                  将房间号分享给对方，对方加入后将自动建立端对端加密连接。
+                  {connectionStatus === 'waiting'
+                    ? '将房间号分享给对方，对方加入后将自动建立端对端加密连接。'
+                    : '正在与对方进行密钥交换，请稍候...'}
                 </p>
                 <button
-                  onClick={() => navigate('/create')}
+                  onClick={handleCopyRoomId}
                   className="w-full flex items-center justify-center gap-2 py-2 bg-[#07C160]/10 text-[#07C160] rounded-lg text-sm font-medium hover:bg-[#07C160]/20 transition-colors"
                 >
-                  <QrCode className="w-4 h-4" />
-                  查看二维码
+                  {copied ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      已复制房间号
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      复制房间号
+                    </>
+                  )}
                 </button>
               </div>
             </>
@@ -344,13 +420,19 @@ export default function ChatPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="bg-white border-t border-gray-100 px-4 py-3 sticky bottom-0">
+      <div className="bg-white border-t border-gray-100 px-4 py-3 sticky bottom-0 safe-area-bottom">
         {connectionStatus !== 'connected' && (
           <div className="mb-3 px-3 py-2 bg-orange-50 rounded-lg flex items-center gap-2">
             <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse" />
-            <span className="text-xs text-orange-600">
-              等待对方加入以建立加密连接...
+            <span className="text-xs text-orange-600 flex-1">
+              {getStatusText()}
             </span>
+            <button
+              onClick={handleCopyRoomId}
+              className="text-xs text-[#07C160] font-medium"
+            >
+              复制房间号
+            </button>
           </div>
         )}
 
@@ -385,9 +467,15 @@ export default function ChatPage() {
 
         <div className="flex items-end gap-2">
           <button
-            className="p-2 text-gray-500 hover:text-gray-700 -ml-2"
-            disabled={!sharedKey}
-            onClick={() => fileInputRef.current?.click()}
+            className={`p-2 -ml-2 transition-colors ${
+              sharedKey
+                ? 'text-gray-500 hover:text-gray-700'
+                : 'text-gray-300 cursor-not-allowed'
+            }`}
+            onClick={() => {
+              if (sharedKey) fileInputRef.current?.click();
+              else handleDisabledClick();
+            }}
           >
             <Paperclip className="w-6 h-6" />
           </button>
@@ -396,13 +484,18 @@ export default function ChatPage() {
             type="file"
             className="hidden"
             onChange={handleFileSelect}
-            disabled={!sharedKey}
           />
 
           <button
-            className="p-2 text-gray-500 hover:text-gray-700"
-            disabled={!sharedKey}
-            onClick={() => imageInputRef.current?.click()}
+            className={`p-2 transition-colors ${
+              sharedKey
+                ? 'text-gray-500 hover:text-gray-700'
+                : 'text-gray-300 cursor-not-allowed'
+            }`}
+            onClick={() => {
+              if (sharedKey) imageInputRef.current?.click();
+              else handleDisabledClick();
+            }}
           >
             <Image className="w-6 h-6" />
           </button>
@@ -412,7 +505,6 @@ export default function ChatPage() {
             accept="image/*"
             className="hidden"
             onChange={handleImageSelect}
-            disabled={!sharedKey}
           />
 
           <div className="flex-1 bg-gray-100 rounded-2xl px-4 py-2">
@@ -423,19 +515,28 @@ export default function ChatPage() {
               placeholder={sharedKey ? "输入消息..." : "加密连接建立后即可发送消息"}
               rows={1}
               disabled={!sharedKey || isRecording}
-              className="w-full bg-transparent resize-none outline-none text-gray-800 text-[15px] placeholder-gray-400 max-h-32 disabled:cursor-not-allowed disabled:text-gray-400"
+              className="w-full bg-transparent resize-none outline-none text-gray-800 text-[15px] placeholder-gray-400 max-h-32 disabled:cursor-not-allowed"
               style={{ minHeight: '24px' }}
             />
           </div>
 
-          {!inputText.trim() && sharedKey && (
+          {!inputText.trim() && (
             <button
-              className="p-2 text-gray-500 hover:text-gray-700 -mr-2"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={isRecording ? stopRecording : startRecording}
-              disabled={!sharedKey}
+              className={`p-2 -mr-2 transition-colors ${
+                sharedKey
+                  ? 'text-gray-500 hover:text-gray-700'
+                  : 'text-gray-300 cursor-not-allowed'
+              } ${isRecording ? 'text-red-500' : ''}`}
+              onClick={() => {
+                if (sharedKey) {
+                  if (isRecording) stopRecording();
+                  else startRecording();
+                } else {
+                  handleDisabledClick();
+                }
+              }}
             >
-              <Mic className={`w-6 h-6 ${isRecording ? 'text-red-500' : ''}`} />
+              <Mic className="w-6 h-6" />
             </button>
           )}
 
