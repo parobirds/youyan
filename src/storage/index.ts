@@ -3,7 +3,7 @@ import type { EncryptedMessage, Room } from '@/types';
 const MESSAGES_KEY_PREFIX = 'e2ee_messages_';
 const ROOMS_KEY = 'e2ee_rooms';
 
-// 不再限制消息数量，改用 IndexedDB 存储大文件数据
+// 使用 IndexedDB 存储大数据，不限制消息数量
 let db: IDBDatabase | null = null;
 
 function openDB(): Promise<IDBDatabase> {
@@ -32,9 +32,9 @@ function openDB(): Promise<IDBDatabase> {
         database.createObjectStore('rooms', { keyPath: 'id' });
       }
       
-      // 文件存储（用于大文件）
-      if (!database.objectStoreNames.contains('files')) {
-        const fileStore = database.createObjectStore('files', { keyPath: 'id' });
+      // 本地文件存储（接收的加密文件解密后存储在本地）
+      if (!database.objectStoreNames.contains('localFiles')) {
+        const fileStore = database.createObjectStore('localFiles', { keyPath: 'id' });
         fileStore.createIndex('roomId', 'roomId', { unique: false });
       }
     };
@@ -42,9 +42,8 @@ function openDB(): Promise<IDBDatabase> {
 }
 
 export function saveMessages(roomId: string, messages: EncryptedMessage[]): void {
-  // 小数据仍然用 localStorage（快速读写）
+  // 小数据用 localStorage（快速读写）
   const smallMessages = messages.map(msg => {
-    // 如果消息内容太大，只存储元数据，实际内容存 IndexedDB
     if (msg.ciphertext.length > 100000) {
       return { ...msg, ciphertext: 'INDEXEDDB_REF', largeData: true };
     }
@@ -54,7 +53,7 @@ export function saveMessages(roomId: string, messages: EncryptedMessage[]): void
   try {
     localStorage.setItem(MESSAGES_KEY_PREFIX + roomId, JSON.stringify(smallMessages));
   } catch (e) {
-    console.error('localStorage save failed, using IndexedDB only:', e);
+    console.error('localStorage save failed:', e);
   }
   
   // 大消息存 IndexedDB
@@ -73,7 +72,6 @@ export function saveMessages(roomId: string, messages: EncryptedMessage[]): void
 }
 
 export async function loadMessages(roomId: string): Promise<EncryptedMessage[]> {
-  // 从 localStorage 加载
   let messages: EncryptedMessage[] = [];
   try {
     const data = localStorage.getItem(MESSAGES_KEY_PREFIX + roomId);
@@ -84,7 +82,6 @@ export async function loadMessages(roomId: string): Promise<EncryptedMessage[]> 
     console.error('localStorage load failed:', e);
   }
   
-  // 从 IndexedDB 加载大数据消息
   try {
     const database = await openDB();
     const tx = database.transaction('messages', 'readonly');
@@ -96,7 +93,6 @@ export async function loadMessages(roomId: string): Promise<EncryptedMessage[]> 
       request.onerror = () => reject(request.error);
     });
     
-    // 合并：大数据消息替换引用标记
     messages = messages.map(msg => {
       if (msg.largeData) {
         const bigMsg = bigMessages.find(b => b.timestamp === msg.timestamp);
@@ -105,7 +101,6 @@ export async function loadMessages(roomId: string): Promise<EncryptedMessage[]> 
       return msg;
     });
     
-    // 添加 IndexedDB 中独有的消息
     bigMessages.forEach(bigMsg => {
       if (!messages.find(m => m.timestamp === bigMsg.timestamp)) {
         messages.push(bigMsg);
@@ -159,35 +154,64 @@ export function clearAllData(): void {
     openDB().then(database => {
       database.transaction('messages', 'readwrite').objectStore('messages').clear();
       database.transaction('rooms', 'readwrite').objectStore('rooms').clear();
-      database.transaction('files', 'readwrite').objectStore('files').clear();
+      database.transaction('localFiles', 'readwrite').objectStore('localFiles').clear();
     }).catch(e => console.error('IndexedDB clear failed:', e));
   } catch (e) {
     console.error('Failed to clear data:', e);
   }
 }
 
-// 文件上传相关（服务器存储）
-export interface FileUploadResult {
+// 本地文件存储（接收的文件解密后存储在 IndexedDB）
+export interface LocalFile {
   id: string;
-  url: string;
+  roomId: string;
   name: string;
   size: number;
   type: string;
+  data: ArrayBuffer;
+  receivedAt: number;
 }
 
-export async function uploadFile(file: File, roomId: string): Promise<FileUploadResult> {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('roomId', roomId);
-  
-  const response = await fetch('/api/upload', {
-    method: 'POST',
-    body: formData,
-  });
-  
-  if (!response.ok) {
-    throw new Error('文件上传失败');
+export async function saveLocalFile(file: LocalFile): Promise<void> {
+  try {
+    const database = await openDB();
+    const tx = database.transaction('localFiles', 'readwrite');
+    const store = tx.objectStore('localFiles');
+    store.put(file);
+  } catch (e) {
+    console.error('Failed to save local file:', e);
   }
-  
-  return response.json();
+}
+
+export async function loadLocalFile(id: string): Promise<LocalFile | null> {
+  try {
+    const database = await openDB();
+    const tx = database.transaction('localFiles', 'readonly');
+    const store = tx.objectStore('localFiles');
+    return await new Promise<LocalFile | null>((resolve, reject) => {
+      const request = store.get(id);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (e) {
+    console.error('Failed to load local file:', e);
+    return null;
+  }
+}
+
+export async function loadLocalFilesByRoom(roomId: string): Promise<LocalFile[]> {
+  try {
+    const database = await openDB();
+    const tx = database.transaction('localFiles', 'readonly');
+    const store = tx.objectStore('localFiles');
+    const index = store.index('roomId');
+    return await new Promise<LocalFile[]>((resolve, reject) => {
+      const request = index.getAll(roomId);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (e) {
+    console.error('Failed to load local files:', e);
+    return [];
+  }
 }

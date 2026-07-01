@@ -73,7 +73,11 @@ export type SignalType =
   | 'message_read'
   | 'burn_trigger'
   | 'room_dissolved'
-  | 'screenshot';
+  | 'screenshot'
+  | 'file_start'
+  | 'file_chunk'
+  | 'file_end'
+  | 'file_cancel';
 
 export interface SignalMessage {
   type: SignalType;
