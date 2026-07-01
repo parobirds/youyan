@@ -37,6 +37,10 @@ export async function encryptMessage(
   const content = JSON.stringify({
     type: message.type,
     content: message.content,
+    fileName: message.fileName,
+    fileSize: message.fileSize,
+    fileType: message.fileType,
+    duration: message.duration,
   });
   const encoded = new TextEncoder().encode(content);
   const encrypted = gcm(aesKey.raw, iv).encrypt(encoded);
@@ -68,5 +72,9 @@ export async function decryptMessage(
     timestamp: encrypted.timestamp,
     senderId: encrypted.senderId,
     senderName: encrypted.senderName,
+    fileName: parsed.fileName,
+    fileSize: parsed.fileSize,
+    fileType: parsed.fileType,
+    duration: parsed.duration,
   };
 }

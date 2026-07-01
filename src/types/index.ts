@@ -7,7 +7,17 @@ export interface AesKey {
   raw: Uint8Array;
 }
 
-export type MessageType = 'text' | 'image' | 'file';
+export type MessageType = 'text' | 'image' | 'file' | 'voice';
+
+export interface FileMetadata {
+  name: string;
+  size: number;
+  type: string;
+}
+
+export interface VoiceMetadata {
+  duration: number;
+}
 
 export interface Message {
   id: string;
@@ -16,6 +26,10 @@ export interface Message {
   timestamp: number;
   senderId: string;
   senderName: string;
+  fileName?: string;
+  fileSize?: number;
+  fileType?: string;
+  duration?: number;
 }
 
 export interface EncryptedMessage {
@@ -41,7 +55,7 @@ export interface Room {
   members: Member[];
 }
 
-export type SignalType = 'join' | 'key_exchange' | 'message' | 'leave' | 'ready';
+export type SignalType = 'join' | 'key_exchange' | 'message' | 'leave' | 'ready' | 'call';
 
 export interface SignalMessage {
   type: SignalType;
