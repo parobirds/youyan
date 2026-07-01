@@ -85,7 +85,7 @@ export default function ChatPage() {
   } = useChatStore();
 
   useEffect(() => {
-    if (roomId && room?.id !== roomId && connectionStatus === 'idle') {
+    if (roomId && room?.id !== roomId) {
       joinRoom(roomId, (maxMembers) => {
         alert(`房间人数已满（最多 ${maxMembers} 人）`);
         navigate('/');
@@ -100,7 +100,13 @@ export default function ChatPage() {
     }
     const timer = setTimeout(() => setIsJoining(false), 500);
     return () => clearTimeout(timer);
-  }, [roomId, room?.id, connectionStatus, joinRoom, navigate]);
+  }, [roomId, room?.id, joinRoom, navigate]);
+
+  useEffect(() => {
+    return () => {
+      leaveRoom();
+    };
+  }, [leaveRoom]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
