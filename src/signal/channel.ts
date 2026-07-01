@@ -12,23 +12,30 @@ class SignalChannel {
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
   private pendingMessages: SignalMessage[] = [];
+  // 记录已处理的消息 ID，防止重复处理
+  private processedMsgIds: Set<string> = new Set();
+  private maxProcessedMsgIds: number = 1000;
 
   connect(roomId: string): void {
     this.roomId = roomId;
     this.handlers.clear();
     this.pendingMessages = [];
     this.reconnectAttempts = 0;
+    this.processedMsgIds.clear();
 
+    // 优先使用 WebSocket（跨设备通信）
     if (typeof WebSocket !== 'undefined') {
       this.connectWebSocket(roomId);
     }
     
-    if (typeof BroadcastChannel !== 'undefined') {
+    // BroadcastChannel 仅用于本地同浏览器标签页间通信（备用）
+    // 注意：WebSocket 已连接时不使用 BroadcastChannel 发送，避免重复
+    if (typeof BroadcastChannel !== 'undefined' && !this.ws) {
       this.broadcastChannel = new BroadcastChannel(`e2ee-chat-${roomId}`);
       this.broadcastChannel.onmessage = (event) => {
         const message = event.data as SignalMessage;
         if (message.roomId === this.roomId) {
-          this.dispatch(message);
+          this.dispatchOnce(message);
         }
       };
     }
@@ -47,13 +54,19 @@ class SignalChannel {
         this.status = 'connected';
         this.reconnectAttempts = 0;
         this.flushPendingMessages();
+        
+        // WebSocket 连接成功后关闭 BroadcastChannel（避免重复接收）
+        if (this.broadcastChannel) {
+          this.broadcastChannel.close();
+          this.broadcastChannel = null;
+        }
       };
 
       this.ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data) as SignalMessage;
           if (message.roomId === this.roomId) {
-            this.dispatch(message);
+            this.dispatchOnce(message);
           }
         } catch (e) {
           console.error('[SignalChannel] Failed to parse WebSocket message:', e);
@@ -63,6 +76,16 @@ class SignalChannel {
       this.ws.onclose = () => {
         console.log('[SignalChannel] WebSocket closed');
         this.status = 'disconnected';
+        // WebSocket 断开时启用 BroadcastChannel 作为备用
+        if (typeof BroadcastChannel !== 'undefined' && !this.broadcastChannel) {
+          this.broadcastChannel = new BroadcastChannel(`e2ee-chat-${this.roomId}`);
+          this.broadcastChannel.onmessage = (event) => {
+            const message = event.data as SignalMessage;
+            if (message.roomId === this.roomId) {
+              this.dispatchOnce(message);
+            }
+          };
+        }
         this.tryReconnect(roomId);
       };
 
@@ -72,6 +95,16 @@ class SignalChannel {
     } catch (e) {
       console.error('[SignalChannel] Failed to create WebSocket:', e);
       this.status = 'disconnected';
+      // WebSocket 创建失败时使用 BroadcastChannel
+      if (typeof BroadcastChannel !== 'undefined') {
+        this.broadcastChannel = new BroadcastChannel(`e2ee-chat-${roomId}`);
+        this.broadcastChannel.onmessage = (event) => {
+          const message = event.data as SignalMessage;
+          if (message.roomId === this.roomId) {
+            this.dispatchOnce(message);
+          }
+        };
+      }
     }
   }
 
@@ -115,6 +148,7 @@ class SignalChannel {
     this.status = 'disconnected';
     this.pendingMessages = [];
     this.reconnectAttempts = 0;
+    this.processedMsgIds.clear();
   }
 
   send(type: SignalType, payload: any, senderId: string, senderName?: string): void {
@@ -127,13 +161,13 @@ class SignalChannel {
       timestamp: Date.now(),
     };
 
+    // 优先通过 WebSocket 发送（跨设备）
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
     } else if (this.ws && this.status === 'connecting') {
       this.pendingMessages.push(message);
-    }
-
-    if (this.broadcastChannel) {
+    } else if (this.broadcastChannel) {
+      // WebSocket 不可用时才用 BroadcastChannel（本地通信）
       this.broadcastChannel.postMessage(message);
     }
   }
@@ -153,6 +187,41 @@ class SignalChannel {
         handlers.splice(index, 1);
       }
     }
+  }
+
+  // 只处理一次，防止重复
+  private dispatchOnce(message: SignalMessage): void {
+    // 根据不同信令类型构建唯一标识
+    let msgId: string;
+    
+    if (message.type === 'call') {
+      const action = message.payload?.action || '';
+      if (action === 'ice-candidate') {
+        // ICE candidate 每个都不同，需要更精细的标识
+        const candidate = message.payload?.candidate;
+        const candidateId = candidate?.candidate || candidate?.sdpMid || '';
+        msgId = `${message.senderId}-ice-${candidateId}`;
+      } else {
+        msgId = `${message.timestamp}-${message.senderId}-${message.type}-${action}`;
+      }
+    } else {
+      msgId = `${message.timestamp}-${message.senderId}-${message.type}`;
+    }
+    
+    if (this.processedMsgIds.has(msgId)) {
+      console.log('[SignalChannel] Skipping duplicate message:', msgId);
+      return;
+    }
+    
+    // 记录已处理的消息
+    this.processedMsgIds.add(msgId);
+    if (this.processedMsgIds.size > this.maxProcessedMsgIds) {
+      // 清理旧记录
+      const arr = Array.from(this.processedMsgIds);
+      this.processedMsgIds = new Set(arr.slice(-500));
+    }
+    
+    this.dispatch(message);
   }
 
   private dispatch(message: SignalMessage): void {

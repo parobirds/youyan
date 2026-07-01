@@ -5,7 +5,7 @@ import {
   Send,
   Shield,
   MoreVertical,
-  Image,
+  Image as ImageIcon,
   Copy,
   Check,
   Paperclip,
@@ -182,27 +182,102 @@ export default function ChatPage() {
     }
   };
 
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 文件大小限制：最大 500KB（base64 编码后约 670KB）
+  const MAX_FILE_SIZE = 500 * 1024;
+  // 图片压缩后最大尺寸
+  const MAX_IMAGE_WIDTH = 800;
+  const MAX_IMAGE_HEIGHT = 1200;
+
+  // 压缩图片
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        // 按比例缩放
+        if (width > MAX_IMAGE_WIDTH) {
+          height = (height * MAX_IMAGE_WIDTH) / width;
+          width = MAX_IMAGE_WIDTH;
+        }
+        if (height > MAX_IMAGE_HEIGHT) {
+          width = (width * MAX_IMAGE_HEIGHT) / height;
+          height = MAX_IMAGE_HEIGHT;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('无法创建 canvas'));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // 尝试不同质量压缩直到满足大小限制
+        let quality = 0.8;
+        const tryCompress = () => {
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          // base64 字符串长度约等于原始字节数的 1.37 倍
+          const estimatedSize = Math.ceil((dataUrl.length - 'data:image/jpeg;base64,'.length) * 0.75);
+          
+          if (estimatedSize <= MAX_FILE_SIZE || quality <= 0.1) {
+            resolve(dataUrl);
+          } else {
+            quality -= 0.1;
+            tryCompress();
+          }
+        };
+        tryCompress();
+      };
+      img.onerror = () => reject(new Error('图片加载失败'));
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !sharedKey) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      sendMessage(result, 'image', {
+    
+    try {
+      // 检查原始文件大小
+      if (file.size > 5 * 1024 * 1024) {
+        alert('图片过大（超过 5MB），请选择较小的图片');
+        e.target.value = '';
+        return;
+      }
+
+      // 压缩图片
+      const compressedDataUrl = await compressImage(file);
+      
+      sendMessage(compressedDataUrl, 'image', {
         fileName: file.name,
         fileSize: file.size,
         fileType: file.type,
         ...buildReplyMeta(),
       });
       setReplyTo(null);
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('图片处理失败:', err);
+      alert('图片处理失败，请重试');
+    }
     e.target.value = '';
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !sharedKey) return;
+    
+    // 文件大小限制
+    if (file.size > MAX_FILE_SIZE) {
+      alert(`文件过大（${Math.round(file.size / 1024)}KB），最大支持 ${Math.round(MAX_FILE_SIZE / 1024)}KB`);
+      e.target.value = '';
+      return;
+    }
+    
     const reader = new FileReader();
     reader.onload = (event) => {
       const result = event.target?.result as string;
@@ -213,6 +288,9 @@ export default function ChatPage() {
         ...buildReplyMeta(),
       });
       setReplyTo(null);
+    };
+    reader.onerror = () => {
+      alert('文件读取失败');
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -739,7 +817,7 @@ export default function ChatPage() {
               else handleDisabledClick();
             }}
           >
-            <Image className="w-6 h-6" />
+            <ImageIcon className="w-6 h-6" />
           </button>
           <input
             ref={imageInputRef}
