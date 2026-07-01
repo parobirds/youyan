@@ -20,10 +20,13 @@ import {
   RotateCcw,
   Flame,
   LogOut,
+  Monitor,
 } from 'lucide-react';
 import MessageBubble from '@/components/MessageBubble';
 import CallModal from '@/components/CallModal';
+import ScreenShareModal from '@/components/ScreenShareModal';
 import { useChatStore } from '@/store/useChatStore';
+import { useScreenShareStore } from '@/store/useScreenShareStore';
 import { formatDate } from '@/utils';
 import { loadRooms, saveRooms } from '@/storage';
 import { signalChannel } from '@/signal/channel';
@@ -51,6 +54,7 @@ export default function ChatPage() {
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [actionMsg, setActionMsg] = useState<Message | null>(null);
   const [showDissolveConfirm, setShowDissolveConfirm] = useState(false);
+  const [showScreenShare, setShowScreenShare] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -133,6 +137,19 @@ export default function ChatPage() {
     };
   }, []);
 
+  // 监听屏幕共享状态变化，收到请求时自动打开弹窗
+  const screenShareStatus = useScreenShareStore((state) => state.status);
+  const screenStream = useScreenShareStore((state) => state.screenStream);
+
+  useEffect(() => {
+    if (screenShareStatus === 'requesting' && !screenStream) {
+      setShowScreenShare(true);
+    }
+    if (screenShareStatus === 'idle') {
+      setShowScreenShare(false);
+    }
+  }, [screenShareStatus, screenStream]);
+
   const buildReplyMeta = (): Partial<Message> => {
     if (!replyTo) return {};
     return {
@@ -182,8 +199,6 @@ export default function ChatPage() {
     }
   };
 
-  // 文件大小限制：最大 500KB（base64 编码后约 670KB）
-  const MAX_FILE_SIZE = 500 * 1024;
   // 图片压缩后最大尺寸
   const MAX_IMAGE_WIDTH = 800;
   const MAX_IMAGE_HEIGHT = 1200;
@@ -217,21 +232,9 @@ export default function ChatPage() {
 
         ctx.drawImage(img, 0, 0, width, height);
         
-        // 尝试不同质量压缩直到满足大小限制
-        let quality = 0.8;
-        const tryCompress = () => {
-          const dataUrl = canvas.toDataURL('image/jpeg', quality);
-          // base64 字符串长度约等于原始字节数的 1.37 倍
-          const estimatedSize = Math.ceil((dataUrl.length - 'data:image/jpeg;base64,'.length) * 0.75);
-          
-          if (estimatedSize <= MAX_FILE_SIZE || quality <= 0.1) {
-            resolve(dataUrl);
-          } else {
-            quality -= 0.1;
-            tryCompress();
-          }
-        };
-        tryCompress();
+        // 使用 0.8 质量压缩
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        resolve(dataUrl);
       };
       img.onerror = () => reject(new Error('图片加载失败'));
       img.src = URL.createObjectURL(file);
@@ -243,13 +246,6 @@ export default function ChatPage() {
     if (!file || !sharedKey) return;
     
     try {
-      // 检查原始文件大小
-      if (file.size > 5 * 1024 * 1024) {
-        alert('图片过大（超过 5MB），请选择较小的图片');
-        e.target.value = '';
-        return;
-      }
-
       // 压缩图片
       const compressedDataUrl = await compressImage(file);
       
@@ -270,13 +266,6 @@ export default function ChatPage() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !sharedKey) return;
-    
-    // 文件大小限制
-    if (file.size > MAX_FILE_SIZE) {
-      alert(`文件过大（${Math.round(file.size / 1024)}KB），最大支持 ${Math.round(MAX_FILE_SIZE / 1024)}KB`);
-      e.target.value = '';
-      return;
-    }
     
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -511,6 +500,13 @@ export default function ChatPage() {
   return (
     <div className="min-h-screen chat-bg flex flex-col">
       <CallModal />
+      {showScreenShare && (
+        <ScreenShareModal
+          onClose={() => setShowScreenShare(false)}
+          myId={myId}
+          myName={myName}
+        />
+      )}
 
       {showTip && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-gray-800 text-white px-4 py-2 rounded-lg text-sm shadow-lg animate-fade-in">
@@ -569,6 +565,17 @@ export default function ChatPage() {
               >
                 <Video className="w-4 h-4" />
                 视频通话
+              </button>
+              <div className="border-t border-gray-100 my-1" />
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  setShowScreenShare(true);
+                }}
+                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+              >
+                <Monitor className="w-4 h-4" />
+                屏幕共享
               </button>
               <div className="border-t border-gray-100 my-1" />
               <button

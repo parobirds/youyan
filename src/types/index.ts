@@ -77,7 +77,8 @@ export type SignalType =
   | 'file_start'
   | 'file_chunk'
   | 'file_end'
-  | 'file_cancel';
+  | 'file_cancel'
+  | 'screen_share';
 
 export interface SignalMessage {
   type: SignalType;

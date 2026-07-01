@@ -5,6 +5,7 @@ import { encryptMessage, decryptMessage } from '@/crypto/aes';
 import { signalChannel } from '@/signal/channel';
 import { generateId, generateRoomId } from '@/utils';
 import { saveMessages, loadMessages } from '@/storage';
+import { useScreenShareStore } from './useScreenShareStore';
 
 export type CallType = 'voice' | 'video' | null;
 export type CallStatus = 'idle' | 'calling' | 'ringing' | 'connected' | 'ended';
@@ -319,6 +320,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { peerConnection, localStream } = get();
     if (peerConnection) peerConnection.close();
     if (localStream) localStream.getTracks().forEach(track => track.stop());
+    useScreenShareStore.getState()._cleanup();
     signalChannel.disconnect();
     set({
       room: null, myId: '', keyPair: null, sharedKey: null,
@@ -504,5 +506,15 @@ function _setupSignalHandlers(get: any, set: any, keyPair: KeyPair, myId: string
 
   signalChannel.on('screenshot', (message: any) => {
     if (message.senderId !== get().myId) get().handleScreenshot(message.senderName || '对方');
+  });
+
+  signalChannel.on('screen_share', (message: any) => {
+    if (message.senderId !== get().myId) {
+      useScreenShareStore.getState().handleSignal(
+        message.payload,
+        message.senderId,
+        message.senderName
+      );
+    }
   });
 }

@@ -7,8 +7,7 @@ import { saveLocalFile, type LocalFile } from '@/storage';
 
 // 分块大小：32KB（WebSocket 安全传输大小）
 const CHUNK_SIZE = 32 * 1024;
-// 最大文件大小：50MB
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
+// 文件大小不限制（存本地 IndexedDB）
 
 export interface FileTransferProgress {
   fileId: string;
@@ -53,9 +52,7 @@ export async function sendEncryptedFile(
   senderName: string,
   onProgress?: (progress: FileTransferProgress) => void
 ): Promise<void> {
-  if (file.size > MAX_FILE_SIZE) {
-    throw new Error(`文件过大，最大支持 ${MAX_FILE_SIZE / 1024 / 1024}MB`);
-  }
+  // 文件大小不限制（存本地 IndexedDB）
 
   const fileId = generateId();
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
