@@ -40,6 +40,12 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => ({
 
   startScreenShare: async (myId: string, myName: string) => {
     try {
+      // 检查是否支持屏幕共享
+      if (!(navigator.mediaDevices as any)?.getDisplayMedia) {
+        alert('当前浏览器不支持屏幕共享功能');
+        return;
+      }
+
       set({ status: 'requesting' });
 
       const stream = await (navigator.mediaDevices as any).getDisplayMedia({
@@ -90,8 +96,15 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => ({
         sharerName: myName,
       }, myId, myName);
 
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to start screen share:', e);
+      if (e.name === 'NotAllowedError' || e.message?.includes('denied')) {
+        alert('屏幕共享权限被拒绝');
+      } else if (e.name === 'NotSupportedError') {
+        alert('当前浏览器不支持屏幕共享功能');
+      } else {
+        alert('屏幕共享启动失败：' + (e.message || '未知错误'));
+      }
       set({ status: 'idle' });
     }
   },
@@ -101,7 +114,11 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => ({
     if (!existingPc) return;
 
     try {
-      set({ status: 'watching' });
+      const pendingOffer = (get() as any)._pendingOffer;
+      if (pendingOffer) {
+        await existingPc.setRemoteDescription(new RTCSessionDescription(pendingOffer));
+      }
+      
       const answer = await existingPc.createAnswer();
       await existingPc.setLocalDescription(answer);
 
@@ -109,6 +126,8 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => ({
         action: 'answer',
         answer,
       }, myId, sharerName || '');
+      
+      set({ status: 'watching' });
     } catch (e) {
       console.error('Failed to accept screen share:', e);
       get()._cleanup();
@@ -152,6 +171,9 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => ({
             sharerName: data.sharerName || senderName || '对方',
             status: 'requesting' 
           });
+          
+          // 暂存 offer，等用户接受后再设置
+          (get() as any)._pendingOffer = data.offer;
 
           pc.ontrack = (event) => {
             set({ remoteScreenStream: event.streams[0] });
@@ -173,8 +195,6 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => ({
               get()._cleanup();
             }
           };
-
-          pc.setRemoteDescription(new RTCSessionDescription(data.offer));
         }
         break;
 

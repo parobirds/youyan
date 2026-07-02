@@ -479,14 +479,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   acceptCall: async () => {
-    const { myId, callType, peerConnection, localStream } = get();
+    const { myId, callType, peerConnection } = get();
     if (!callType || !peerConnection) return;
     try {
       const constraints = callType === 'video' ? { audio: true, video: true } : { audio: true, video: false };
-      const stream = localStream || await navigator.mediaDevices.getUserMedia(constraints);
-      set({ localStream: stream, callStatus: 'connected' });
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      set({ localStream: stream });
+      
+      // 先添加本地流的轨道
       stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
-
+      
+      // 再设置远端 offer
+      const pendingOffer = (get() as any)._pendingOffer;
+      if (pendingOffer) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(pendingOffer));
+      }
+      
+      // 创建并设置 answer
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       signalChannel.send('call', { callType, action: 'answer', answer }, myId);
@@ -527,7 +536,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       case 'offer':
         if (currentStatus === 'idle') {
           const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-          set({ peerConnection: pc, callType: data.callType, callStatus: 'ringing' });
+          set({ 
+            peerConnection: pc, 
+            callType: data.callType, 
+            callStatus: 'ringing',
+          });
+          // 暂存 offer，等用户接受后再设置
+          (get() as any)._pendingOffer = data.offer;
           pc.ontrack = (event) => set({ remoteStream: event.streams[0] });
           pc.onicecandidate = (event) => {
             if (event.candidate) {
@@ -538,7 +553,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
             if (pc.connectionState === 'connected') set({ callStatus: 'connected' });
             else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') get()._cleanupCall();
           };
-          await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
         }
         break;
       case 'answer':
