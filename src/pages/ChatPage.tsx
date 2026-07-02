@@ -25,6 +25,7 @@ import {
 import MessageBubble from '@/components/MessageBubble';
 import CallModal from '@/components/CallModal';
 import ScreenShareModal from '@/components/ScreenShareModal';
+import ImageViewer from '@/components/ImageViewer';
 import { useChatStore } from '@/store/useChatStore';
 import { useScreenShareStore } from '@/store/useScreenShareStore';
 import { formatDate } from '@/utils';
@@ -50,11 +51,15 @@ export default function ChatPage() {
   const [showMenu, setShowMenu] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [isVideoRecording, setIsVideoRecording] = useState(false);
+  const [videoRecordingTime, setVideoRecordingTime] = useState(0);
+  const [showVideoRecorder, setShowVideoRecorder] = useState(false);
   const [showTip, setShowTip] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [actionMsg, setActionMsg] = useState<Message | null>(null);
   const [showDissolveConfirm, setShowDissolveConfirm] = useState(false);
   const [showScreenShare, setShowScreenShare] = useState(false);
+  const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -62,6 +67,11 @@ export default function ChatPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const videoMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const videoRecordingTimerRef = useRef<number | null>(null);
+  const videoChunksRef = useRef<Blob[]>([]);
+  const videoStreamRef = useRef<MediaStream | null>(null);
+  const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const pressTimerRef = useRef<number | null>(null);
 
@@ -143,6 +153,11 @@ export default function ChatPage() {
     return () => {
       if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (videoRecordingTimerRef.current) clearInterval(videoRecordingTimerRef.current);
+      if (videoStreamRef.current) {
+        videoStreamRef.current.getTracks().forEach(track => track.stop());
+        videoStreamRef.current = null;
+      }
     };
   }, []);
 
@@ -369,6 +384,95 @@ export default function ChatPage() {
     }
   };
 
+  const startVideoRecording = async () => {
+    if (!sharedKey) {
+      handleDisabledClick();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      videoStreamRef.current = stream;
+
+      if (videoPreviewRef.current) {
+        videoPreviewRef.current.srcObject = stream;
+      }
+
+      const mediaRecorder = new MediaRecorder(stream);
+      videoMediaRecorderRef.current = mediaRecorder;
+      videoChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) videoChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
+        const videoFile = new File([videoBlob], `视频_${Date.now()}.webm`, { type: 'video/webm' });
+
+        const { sendFile } = useChatStore.getState();
+        sendFile(videoFile, (progress) => {
+          if (progress.status === 'completed') {
+            sendMessage(progress.fileId, 'video', {
+              duration: videoRecordingTime,
+              fileName: videoFile.name,
+              fileSize: videoFile.size,
+              fileType: 'video/webm',
+              ...buildReplyMeta(),
+            });
+            setReplyTo(null);
+          }
+        });
+
+        if (videoStreamRef.current) {
+          videoStreamRef.current.getTracks().forEach((track) => track.stop());
+          videoStreamRef.current = null;
+        }
+        setVideoRecordingTime(0);
+      };
+
+      mediaRecorder.start();
+      setIsVideoRecording(true);
+      setVideoRecordingTime(0);
+      videoRecordingTimerRef.current = window.setInterval(() => {
+        setVideoRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (e) {
+      console.error('Failed to start video recording:', e);
+      alert('无法访问摄像头和麦克风，请检查权限设置');
+      setShowVideoRecorder(false);
+    }
+  };
+
+  const stopVideoRecording = () => {
+    if (videoMediaRecorderRef.current && isVideoRecording) {
+      videoMediaRecorderRef.current.stop();
+      setIsVideoRecording(false);
+      setShowVideoRecorder(false);
+      if (videoRecordingTimerRef.current) {
+        clearInterval(videoRecordingTimerRef.current);
+        videoRecordingTimerRef.current = null;
+      }
+    }
+  };
+
+  const cancelVideoRecording = () => {
+    if (videoMediaRecorderRef.current && isVideoRecording) {
+      videoMediaRecorderRef.current.stop();
+      setIsVideoRecording(false);
+    }
+    if (videoStreamRef.current) {
+      videoStreamRef.current.getTracks().forEach((track) => track.stop());
+      videoStreamRef.current = null;
+    }
+    if (videoRecordingTimerRef.current) {
+      clearInterval(videoRecordingTimerRef.current);
+      videoRecordingTimerRef.current = null;
+    }
+    setIsVideoRecording(false);
+    setVideoRecordingTime(0);
+    setShowVideoRecorder(false);
+  };
+
   const handleStartVoiceCall = async () => {
     if (!sharedKey) {
       handleDisabledClick();
@@ -470,6 +574,8 @@ export default function ChatPage() {
     switch (message.type) {
       case 'image':
         return '[图片]';
+      case 'video':
+        return '[视频]';
       case 'voice':
         return '[语音]';
       case 'file':
@@ -546,6 +652,75 @@ export default function ChatPage() {
           myId={myId}
           myName={myName}
         />
+      )}
+      {imageViewerSrc && (
+        <ImageViewer src={imageViewerSrc} onClose={() => setImageViewerSrc(null)} />
+      )}
+
+      {showVideoRecorder && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 bg-black/80">
+            <button
+              onClick={cancelVideoRecording}
+              className="p-2 text-white hover:text-gray-300 transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <div className="flex items-center gap-2">
+              {isVideoRecording && (
+                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+              )}
+              <span className="text-white text-sm font-mono">
+                {formatRecordingTime(videoRecordingTime)}
+              </span>
+            </div>
+            <div className="w-10" />
+          </div>
+
+          <div className="flex-1 relative flex items-center justify-center bg-gray-900">
+            <video
+              ref={videoPreviewRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-cover"
+            />
+            {!isVideoRecording && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center text-white/80">
+                  <Video className="w-16 h-16 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">点击下方按钮开始录制视频</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-center py-6 bg-black/80">
+            {!isVideoRecording ? (
+              <button
+                onClick={startVideoRecording}
+                className="w-16 h-16 rounded-full bg-white flex items-center justify-center hover:bg-gray-200 transition-colors active:scale-95"
+              >
+                <div className="w-6 h-6 rounded-full bg-red-500" />
+              </button>
+            ) : (
+              <div className="flex items-center gap-8">
+                <button
+                  onClick={cancelVideoRecording}
+                  className="w-14 h-14 rounded-full bg-gray-700 flex items-center justify-center hover:bg-gray-600 transition-colors"
+                >
+                  <X className="w-6 h-6 text-white" />
+                </button>
+                <button
+                  onClick={stopVideoRecording}
+                  className="w-16 h-16 rounded-full bg-white flex items-center justify-center hover:bg-gray-200 transition-colors active:scale-95"
+                >
+                  <div className="w-5 h-5 bg-red-500 rounded-sm" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {showTip && (
@@ -738,6 +913,7 @@ export default function ChatPage() {
                 message={message}
                 isOwn={message.senderId === myId}
                 showDate={shouldShowDate(index)}
+                onImageClick={(src) => setImageViewerSrc(src)}
               />
             </div>
           )
@@ -873,6 +1049,18 @@ export default function ChatPage() {
             className="hidden"
             onChange={handleImageSelect}
           />
+
+          <button
+            className={`p-2 transition-colors ${
+              sharedKey ? 'text-gray-500 hover:text-gray-700' : 'text-gray-300'
+            }`}
+            onClick={() => {
+              if (sharedKey) setShowVideoRecorder(true);
+              else handleDisabledClick();
+            }}
+          >
+            <Video className="w-6 h-6" />
+          </button>
 
           <div className="flex-1 bg-gray-100 rounded-2xl px-4 py-2">
             <textarea

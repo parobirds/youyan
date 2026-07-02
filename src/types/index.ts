@@ -7,7 +7,7 @@ export interface AesKey {
   raw: Uint8Array;
 }
 
-export type MessageType = 'text' | 'image' | 'file' | 'voice' | 'system' | 'call_record';
+export type MessageType = 'text' | 'image' | 'file' | 'voice' | 'video' | 'system' | 'call_record';
 
 export type BurnMode = 0 | 10 | 30 | 60;
 

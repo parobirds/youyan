@@ -15,6 +15,7 @@ import {
   Video,
   CornerUpLeft,
   Shield,
+  X,
 } from 'lucide-react';
 import { useChatStore } from '@/store/useChatStore';
 
@@ -55,7 +56,10 @@ export default function MessageBubble({
   const [currentTime, setCurrentTime] = useState(0);
   const [burnCountdown, setBurnCountdown] = useState<number | null>(null);
   const [imageUrl, setImageUrl] = useState<string>('');
+  const [videoUrl, setVideoUrl] = useState<string>('');
+  const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const longPressTimer = useRef<number | null>(null);
 
   // 加载图片（如果 content 是 fileId，则从 IndexedDB 加载）
@@ -84,11 +88,41 @@ export default function MessageBubble({
     };
   }, [message.content, message.type]);
 
+  // 加载视频（如果 content 是 fileId，则从 IndexedDB 加载）
+  useEffect(() => {
+    if (message.type !== 'video') return;
+    if (message.content.startsWith('data:') || message.content.startsWith('blob:')) {
+      setVideoUrl(message.content);
+      return;
+    }
+
+    let objectUrl: string | null = null;
+    const loadVideo = async () => {
+      const getFileUrl = useChatStore.getState().getFileUrl;
+      const fileUrl = await getFileUrl(message.content);
+      if (fileUrl) {
+        setVideoUrl(fileUrl);
+        objectUrl = fileUrl;
+      }
+    };
+    loadVideo();
+
+    return () => {
+      if (objectUrl && objectUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [message.content, message.type]);
+
   useEffect(() => {
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current = null;
       }
       if (longPressTimer.current) {
         window.clearTimeout(longPressTimer.current);
@@ -171,6 +205,19 @@ export default function MessageBubble({
     }
   };
 
+  const handleVideoClick = () => {
+    if (message.type === 'video' && videoUrl) {
+      setShowVideoPlayer(true);
+    }
+  };
+
+  const closeVideoPlayer = () => {
+    if (videoRef.current) {
+      videoRef.current.pause();
+    }
+    setShowVideoPlayer(false);
+  };
+
   const startLongPress = () => {
     if (!onLongPress) return;
     longPressTimer.current = window.setTimeout(() => {
@@ -247,13 +294,15 @@ export default function MessageBubble({
           <span className={`ml-1 truncate ${isOwn ? 'opacity-80' : 'text-gray-600'}`}>
             {message.replyTo.type === 'image'
               ? '[图片]'
-              : message.replyTo.type === 'file'
-                ? '[文件]'
-                : message.replyTo.type === 'voice'
-                  ? '[语音]'
-                  : message.replyTo.type === 'call_record'
-                    ? '[通话]'
-                    : message.replyTo.content}
+              : message.replyTo.type === 'video'
+                ? '[视频]'
+                : message.replyTo.type === 'file'
+                  ? '[文件]'
+                  : message.replyTo.type === 'voice'
+                    ? '[语音]'
+                    : message.replyTo.type === 'call_record'
+                      ? '[通话]'
+                      : message.replyTo.content}
           </span>
         </div>
       </div>
@@ -300,6 +349,29 @@ export default function MessageBubble({
 
   return (
     <div className="flex flex-col">
+      {showVideoPlayer && videoUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black flex items-center justify-center"
+          onClick={closeVideoPlayer}
+        >
+          <button
+            onClick={closeVideoPlayer}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            className="max-w-full max-h-full"
+            controls
+            playsInline
+            autoPlay
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
       {showDate && renderDateDivider()}
 
       <div
@@ -352,6 +424,35 @@ export default function MessageBubble({
                   />
                 )}
                 {message.type === 'image' && !imageUrl && (
+                  <div className="w-[200px] h-[200px] rounded-lg bg-gray-200 flex items-center justify-center">
+                    <span className="text-gray-500 text-sm">加载中...</span>
+                  </div>
+                )}
+
+                {message.type === 'video' && videoUrl && (
+                  <div
+                    className="relative max-w-[240px] max-h-[320px] rounded-lg overflow-hidden cursor-pointer"
+                    onClick={handleVideoClick}
+                  >
+                    <video
+                      src={videoUrl}
+                      className="w-full h-full object-cover rounded-lg"
+                      muted
+                      playsInline
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                      <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center">
+                        <Play className="w-6 h-6 text-gray-800 ml-0.5" />
+                      </div>
+                    </div>
+                    {message.duration && (
+                      <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded">
+                        {formatDuration(message.duration)}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {message.type === 'video' && !videoUrl && (
                   <div className="w-[200px] h-[200px] rounded-lg bg-gray-200 flex items-center justify-center">
                     <span className="text-gray-500 text-sm">加载中...</span>
                   </div>
